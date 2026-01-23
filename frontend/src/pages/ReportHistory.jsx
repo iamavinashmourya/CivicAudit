@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, LayoutDashboard, Map, History, LogOut, Clock, CheckCircle2, Bell, ArrowLeft } from 'lucide-react'
+import { MapPin, LayoutDashboard, Map, History, LogOut, Clock, CheckCircle2, ArrowLeft } from 'lucide-react'
 import logoIcon from '../assets/icons/logo-icon.svg'
 import { profileAPI } from '../utils/api'
 import ReportCard from '../components/ReportCard'
 import ReportDetailModal from '../components/ReportDetailModal'
 
-function NearbyReports() {
+function ReportHistory() {
   const [user, setUser] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [reports, setReports] = useState([])
   const [selectedReport, setSelectedReport] = useState(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
-  const [userLocation, setUserLocation] = useState(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
   const navigate = useNavigate()
@@ -50,107 +49,82 @@ function NearbyReports() {
     checkAuthAndOnboarding()
   }, [navigate])
 
-  // Get user location
+  // Fetch user's reports (mock data for now)
   useEffect(() => {
-    const fallbackLocation = { lat: 22.3072, lng: 73.1812 }
-
-    if (!navigator.geolocation) {
-      setUserLocation(fallbackLocation)
-      return
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords
-        setUserLocation({ lat: latitude, lng: longitude })
-      },
-      () => {
-        setUserLocation(fallbackLocation)
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    )
-  }, [])
-
-  // Fetch nearby reports (mock data for now)
-  useEffect(() => {
-    if (userLocation) {
-      // Mock reports within 2km - In production, this will call GET /api/reports/nearby
-      const mockReports = [
+    if (user) {
+      // Mock reports created by the user - In production, this will call GET /api/reports/my-reports
+      const mockUserReports = [
         {
           id: '1',
           title: 'Pothole on Main Street',
           category: 'Road',
           description: 'Large pothole causing traffic issues. Needs immediate attention.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+1',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Pothole+Report',
           location: { lat: 22.3078, lng: 73.1819 },
-          status: 'Pending',
+          status: 'Verified',
           upvotes: 12,
           downvotes: 2,
-          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-          userId: { name: 'John Doe' },
+          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+          userId: { name: user.name || 'You' },
         },
         {
           id: '2',
-          title: 'Overflowing Garbage Bin',
-          category: 'Garbage',
-          description: 'Garbage bin near the park is overflowing and spreading waste.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+2',
+          title: 'Broken Streetlight',
+          category: 'Electricity',
+          description: 'Streetlight not working for the past week, making the area unsafe at night.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Streetlight+Report',
           location: { lat: 22.3065, lng: 73.1825 },
-          status: 'Verified',
+          status: 'Pending',
           upvotes: 8,
           downvotes: 1,
-          createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000), // 5 hours ago
-          userId: { name: 'Jane Smith' },
+          createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
+          userId: { name: user.name || 'You' },
         },
         {
           id: '3',
-          title: 'Streetlight Not Working',
-          category: 'Electricity',
-          description: 'Streetlight at the corner of Main and First Street has been out for 3 days.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+3',
+          title: 'Water Leakage Issue',
+          category: 'Water',
+          description: 'Continuous water leakage from the main pipeline near the park.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Water+Leak+Report',
           location: { lat: 22.3082, lng: 73.1803 },
-          status: 'Pending',
+          status: 'Resolved',
           upvotes: 15,
           downvotes: 0,
-          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-          userId: { name: 'Mike Johnson' },
+          createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), // 10 days ago
+          userId: { name: user.name || 'You' },
         },
         {
           id: '4',
-          title: 'Water Leakage on Sidewalk',
-          category: 'Water',
-          description: 'Continuous water leakage from underground pipe creating puddles.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+4',
+          title: 'Overflowing Garbage Bin',
+          category: 'Garbage',
+          description: 'Garbage bin near residential area is overflowing and causing hygiene issues.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Garbage+Report',
           location: { lat: 22.3070, lng: 73.1815 },
           status: 'Pending',
           upvotes: 6,
           downvotes: 1,
-          createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
-          userId: { name: 'Sarah Williams' },
+          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
+          userId: { name: user.name || 'You' },
         },
         {
           id: '5',
-          title: 'Broken Traffic Sign',
+          title: 'Damaged Road Sign',
           category: 'Road',
-          description: 'Stop sign is bent and partially obscured by tree branches.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+5',
+          description: 'Traffic sign is damaged and needs replacement for safety.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Road+Sign+Report',
           location: { lat: 22.3068, lng: 73.1820 },
           status: 'Verified',
           upvotes: 10,
           downvotes: 2,
-          createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
-          userId: { name: 'David Brown' },
+          createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
+          userId: { name: user.name || 'You' },
         },
       ]
-      setReports(mockReports)
+      setReports(mockUserReports)
     }
-  }, [userLocation])
+  }, [user])
 
-  const filteredReports = reports
+
 
   // Live clock
   useEffect(() => {
@@ -231,14 +205,14 @@ function NearbyReports() {
               <LayoutDashboard className="w-4 h-4" />
               <span>Dashboard</span>
             </button>
-            <button className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium border border-blue-200">
+            <button
+              onClick={() => navigate('/nearby-reports')}
+              className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-sm transition-colors"
+            >
               <Map className="w-4 h-4" />
               <span>Nearby Reports</span>
             </button>
-            <button
-              onClick={() => navigate('/report-history')}
-              className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-sm transition-colors"
-            >
+            <button className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium border border-blue-200">
               <History className="w-4 h-4" />
               <span>Report History</span>
             </button>
@@ -268,19 +242,12 @@ function NearbyReports() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors">
-                <Bell className="w-5 h-5 text-gray-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-              </button>
-
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg min-w-[140px]">
-                <Clock className="w-4 h-4 text-gray-600" />
-                <div className="text-right">
-                  <p className="text-sm font-medium text-gray-900 tabular-nums">
-                    {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg min-w-[140px]">
+              <Clock className="w-4 h-4 text-gray-600" />
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-900 tabular-nums">
+                  {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
               </div>
             </div>
           </div>
@@ -300,26 +267,26 @@ function NearbyReports() {
                   <ArrowLeft className="w-5 h-5 text-gray-700" />
                 </button>
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900">Nearby Reports</h2>
+                  <h2 className="text-2xl font-bold text-gray-900">My Report History</h2>
                   <p className="text-sm text-gray-600 mt-1">
-                    Reports within <span className="font-semibold text-gray-900">2km</span> of your location •{' '}
-                    <span className="font-semibold text-gray-900">{filteredReports.length}</span> found
+                    All reports you've submitted •{' '}
+                    <span className="font-semibold text-gray-900">{reports.length}</span> total
                   </p>
                 </div>
               </div>
             </div>
 
-            {filteredReports.length === 0 ? (
+            {reports.length === 0 ? (
               <div className="text-center py-12">
-                <MapPin className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <History className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-700 text-lg font-semibold">No reports found</p>
                 <p className="text-gray-500 text-sm mt-2">
-                  Try changing the filter, or create the first report in your area.
+                  You haven't created any reports yet. Start by creating your first report!
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
-                {filteredReports.map((report) => (
+                {reports.map((report) => (
                   <ReportCard key={report.id} report={report} onClick={() => handleReportClick(report)} />
                 ))}
               </div>
@@ -340,4 +307,4 @@ function NearbyReports() {
   )
 }
 
-export default NearbyReports
+export default ReportHistory

@@ -139,21 +139,23 @@ function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col lg:flex-row">
+    <div className="h-screen bg-white flex flex-col lg:flex-row overflow-hidden">
       {/* Left Sidebar - Minimalistic */}
-      <aside className="lg:w-64 bg-white text-gray-900 flex lg:flex-col items-center lg:items-stretch justify-between lg:justify-start py-4 lg:py-6 px-4 border-r border-gray-300 shadow-lg">
+      <aside className="lg:w-64 bg-white text-gray-900 flex lg:flex-col items-center lg:items-stretch justify-between lg:justify-start py-3 lg:py-5 px-4 border-r border-gray-300 shadow-lg lg:sticky lg:top-0 lg:h-screen">
         {/* Top Section: Profile */}
-        <div className="flex lg:flex-col items-center lg:items-center gap-4 lg:gap-6 w-full">
-          {/* Profile Avatar */}
-          <div className="flex lg:flex-col items-center lg:items-center gap-3 w-full">
+        <div className="flex lg:flex-col items-center lg:items-center gap-3 lg:gap-4 w-full">
+          <div
+            onClick={() => navigate('/profile')}
+            className="flex lg:flex-col items-center lg:items-center gap-3 w-full cursor-pointer hover:bg-gray-50 rounded-lg p-2 transition-colors"
+          >
             {user.profileImageUrl ? (
               <img
                 src={user.profileImageUrl}
                 alt={user.name || 'Profile'}
-                className="w-12 h-12 lg:w-14 lg:h-14 rounded-full object-cover border border-gray-200"
+                className="w-12 h-12 lg:w-14 lg:h-14 rounded-full object-cover border border-gray-200 hover:ring-2 hover:ring-blue-500 transition-all"
               />
             ) : (
-              <div className="flex items-center justify-center w-12 h-12 lg:w-14 lg:h-14 rounded-full bg-gray-100 border border-gray-200">
+              <div className="flex items-center justify-center w-12 h-12 lg:w-14 lg:h-14 rounded-full bg-gray-100 border border-gray-200 hover:ring-2 hover:ring-blue-500 transition-all">
                 <span className="text-lg lg:text-xl font-semibold text-gray-900">
                   {(user.name || 'U').charAt(0).toUpperCase()}
                 </span>
@@ -173,8 +175,9 @@ function Dashboard() {
             </div>
           </div>
 
+
           {/* Navigation Menu */}
-          <nav className="flex lg:flex-col items-center lg:items-stretch gap-5 w-full mt-2">
+          <nav className="flex lg:flex-col items-center lg:items-stretch gap-3 w-full mt-1">
             <button className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium border border-blue-200">
               <LayoutDashboard className="w-4 h-4" />
               <span>Dashboard</span>
@@ -186,7 +189,10 @@ function Dashboard() {
               <Map className="w-4 h-4" />
               <span>Nearby Reports</span>
             </button>
-            <button className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-sm transition-colors">
+            <button
+              onClick={() => navigate('/report-history')}
+              className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-sm transition-colors"
+            >
               <History className="w-4 h-4" />
               <span>Report History</span>
             </button>
@@ -207,7 +213,7 @@ function Dashboard() {
       </aside>
 
       {/* Right Side: Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Compact Top Header Bar */}
         <header className="w-full px-4 lg:px-6 py-3 bg-white border-b border-gray-300 shadow-md">
           <div className="flex items-center justify-between gap-4">
