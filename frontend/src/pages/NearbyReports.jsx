@@ -1,51 +1,24 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
-import { MapPin, LayoutDashboard, Map, History, LogOut, Clock, CheckCircle2, Bell } from 'lucide-react'
+import { MapPin, LayoutDashboard, Map, History, LogOut, Clock, CheckCircle2, Bell, ArrowLeft } from 'lucide-react'
 import logoIcon from '../assets/icons/logo-icon.svg'
 import { profileAPI } from '../utils/api'
-import CreateReportModal from '../components/CreateReportModal'
+import ReportCard from '../components/ReportCard'
+import ReportDetailModal from '../components/ReportDetailModal'
 
-function Dashboard() {
+function NearbyReports() {
   const [user, setUser] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
-  // Frontend-only state for map and location
-  const [userLocation, setUserLocation] = useState(null) // { lat, lng }
-  const [isLocating, setIsLocating] = useState(true)
-  const [locationError, setLocationError] = useState('')
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [reports, setReports] = useState([])
+  const [selectedReport, setSelectedReport] = useState(null)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [userLocation, setUserLocation] = useState(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
-  // Mock reports used ONLY on the frontend for now.
-  // These simulate what we will later receive from GET /api/reports/nearby.
-  const demoReports = [
-    {
-      id: 'demo-1',
-      title: 'Pothole near main road',
-      category: 'Road',
-      lat: 22.3078,
-      lng: 73.1819,
-    },
-    {
-      id: 'demo-2',
-      title: 'Overflowing garbage bin',
-      category: 'Garbage',
-      lat: 22.3065,
-      lng: 73.1825,
-    },
-    {
-      id: 'demo-3',
-      title: 'Streetlight not working',
-      category: 'Electricity',
-      lat: 22.3082,
-      lng: 73.1803,
-    },
-  ]
   const navigate = useNavigate()
 
   useEffect(() => {
     const checkAuthAndOnboarding = async () => {
-      // Check if user is logged in
       const token = localStorage.getItem('token')
       const userData = localStorage.getItem('user')
 
@@ -57,17 +30,14 @@ function Dashboard() {
       const parsedUser = JSON.parse(userData)
       setUser(parsedUser)
 
-      // Check onboarding status from API
       try {
         const statusResponse = await profileAPI.getStatus()
         if (statusResponse.success && !statusResponse.onboardingCompleted) {
-          // Redirect to onboarding if not completed
           navigate('/onboarding')
           return
         }
       } catch (error) {
         console.error('Error checking onboarding status:', error)
-        // If API fails, check localStorage user data
         if (!parsedUser.onboardingCompleted) {
           navigate('/onboarding')
           return
@@ -80,16 +50,12 @@ function Dashboard() {
     checkAuthAndOnboarding()
   }, [navigate])
 
-  // Detect user's current location for centering the map.
-  // NOTE: This is purely frontend and does NOT call any backend APIs.
+  // Get user location
   useEffect(() => {
-    // Default center to Vadodara, India if GPS is unavailable/blocked
     const fallbackLocation = { lat: 22.3072, lng: 73.1812 }
 
     if (!navigator.geolocation) {
       setUserLocation(fallbackLocation)
-      setLocationError('Geolocation is not supported by your browser. Showing default city view.')
-      setIsLocating(false)
       return
     }
 
@@ -97,13 +63,9 @@ function Dashboard() {
       (position) => {
         const { latitude, longitude } = position.coords
         setUserLocation({ lat: latitude, lng: longitude })
-        setIsLocating(false)
       },
-      (error) => {
-        console.error('Dashboard geolocation error:', error)
+      () => {
         setUserLocation(fallbackLocation)
-        setLocationError('Unable to access your location. Showing city-level map instead.')
-        setIsLocating(false)
       },
       {
         enableHighAccuracy: true,
@@ -113,11 +75,86 @@ function Dashboard() {
     )
   }, [])
 
-  // Live clock for the header - updates every second
+  // Fetch nearby reports (mock data for now)
+  useEffect(() => {
+    if (userLocation) {
+      // Mock reports within 2km - In production, this will call GET /api/reports/nearby
+      const mockReports = [
+        {
+          id: '1',
+          title: 'Pothole on Main Street',
+          category: 'Road',
+          description: 'Large pothole causing traffic issues. Needs immediate attention.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Report+1',
+          location: { lat: 22.3078, lng: 73.1819 },
+          status: 'Pending',
+          upvotes: 12,
+          downvotes: 2,
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
+          userId: { name: 'John Doe' },
+        },
+        {
+          id: '2',
+          title: 'Overflowing Garbage Bin',
+          category: 'Garbage',
+          description: 'Garbage bin near the park is overflowing and spreading waste.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Report+2',
+          location: { lat: 22.3065, lng: 73.1825 },
+          status: 'Verified',
+          upvotes: 8,
+          downvotes: 1,
+          createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000), // 5 hours ago
+          userId: { name: 'Jane Smith' },
+        },
+        {
+          id: '3',
+          title: 'Streetlight Not Working',
+          category: 'Electricity',
+          description: 'Streetlight at the corner of Main and First Street has been out for 3 days.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Report+3',
+          location: { lat: 22.3082, lng: 73.1803 },
+          status: 'Pending',
+          upvotes: 15,
+          downvotes: 0,
+          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
+          userId: { name: 'Mike Johnson' },
+        },
+        {
+          id: '4',
+          title: 'Water Leakage on Sidewalk',
+          category: 'Water',
+          description: 'Continuous water leakage from underground pipe creating puddles.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Report+4',
+          location: { lat: 22.3070, lng: 73.1815 },
+          status: 'Pending',
+          upvotes: 6,
+          downvotes: 1,
+          createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
+          userId: { name: 'Sarah Williams' },
+        },
+        {
+          id: '5',
+          title: 'Broken Traffic Sign',
+          category: 'Road',
+          description: 'Stop sign is bent and partially obscured by tree branches.',
+          imageUrl: 'https://via.placeholder.com/400x300?text=Report+5',
+          location: { lat: 22.3068, lng: 73.1820 },
+          status: 'Verified',
+          upvotes: 10,
+          downvotes: 2,
+          createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
+          userId: { name: 'David Brown' },
+        },
+      ]
+      setReports(mockReports)
+    }
+  }, [userLocation])
+
+  // Live clock
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(new Date())
-    }, 1000) // update every second for smooth clock
+    }, 1000)
     return () => clearInterval(interval)
   }, [])
 
@@ -125,6 +162,16 @@ function Dashboard() {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     navigate('/login')
+  }
+
+  const handleReportClick = (report) => {
+    setSelectedReport(report)
+    setIsDetailModalOpen(true)
+  }
+
+  const handleCloseModal = () => {
+    setIsDetailModalOpen(false)
+    setSelectedReport(null)
   }
 
   if (!user || isLoading) {
@@ -140,11 +187,9 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col lg:flex-row">
-      {/* Left Sidebar - Minimalistic */}
+      {/* Left Sidebar */}
       <aside className="lg:w-64 bg-white text-gray-900 flex lg:flex-col items-center lg:items-stretch justify-between lg:justify-start py-4 lg:py-6 px-4 border-r border-gray-300 shadow-lg">
-        {/* Top Section: Profile */}
         <div className="flex lg:flex-col items-center lg:items-center gap-4 lg:gap-6 w-full">
-          {/* Profile Avatar */}
           <div className="flex lg:flex-col items-center lg:items-center gap-3 w-full">
             {user.profileImageUrl ? (
               <img
@@ -173,16 +218,15 @@ function Dashboard() {
             </div>
           </div>
 
-          {/* Navigation Menu */}
           <nav className="flex lg:flex-col items-center lg:items-stretch gap-5 w-full mt-2">
-            <button className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium border border-blue-200">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-sm transition-colors"
+            >
               <LayoutDashboard className="w-4 h-4" />
               <span>Dashboard</span>
             </button>
-            <button
-              onClick={() => navigate('/nearby-reports')}
-              className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 text-sm transition-colors"
-            >
+            <button className="w-full flex items-center justify-center lg:justify-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium border border-blue-200">
               <Map className="w-4 h-4" />
               <span>Nearby Reports</span>
             </button>
@@ -193,7 +237,6 @@ function Dashboard() {
           </nav>
         </div>
 
-        {/* Bottom Section: Logout Button */}
         <div className="w-full lg:mt-auto">
           <button
             type="button"
@@ -206,30 +249,23 @@ function Dashboard() {
         </div>
       </aside>
 
-      {/* Right Side: Main Content Area */}
+      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Compact Top Header Bar */}
         <header className="w-full px-4 lg:px-6 py-3 bg-white border-b border-gray-300 shadow-md">
           <div className="flex items-center justify-between gap-4">
-            {/* Logo & Title */}
             <div className="flex items-center gap-3">
               <img src={logoIcon} alt="CivicAudit Logo" className="w-7 h-7" />
               <div>
-                <h1 className="text-base lg:text-lg font-semibold text-gray-900">
-                  CivicAudit
-                </h1>
+                <h1 className="text-base lg:text-lg font-semibold text-gray-900">CivicAudit</h1>
               </div>
             </div>
 
-            {/* Right Side: Notifications & Time */}
             <div className="flex items-center gap-3">
-              {/* Notification Bell */}
               <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors">
                 <Bell className="w-5 h-5 text-gray-600" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
               </button>
 
-              {/* Time Clock Widget */}
               <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg min-w-[140px]">
                 <Clock className="w-4 h-4 text-gray-600" />
                 <div className="text-right">
@@ -242,91 +278,52 @@ function Dashboard() {
           </div>
         </header>
 
-        {/* Main Content: Full Map */}
-        <main className="flex-1 overflow-hidden">
-          <div className="h-full w-full">
-            {/* Map Loading State */}
-            {isLocating || !userLocation ? (
-              <div className="h-full flex flex-col items-center justify-center bg-gray-50">
-                <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-200 border-t-gray-900"></div>
-                <p className="mt-4 text-sm text-gray-600">Detecting location...</p>
+        {/* Reports List */}
+        <main className="flex-1 overflow-y-auto bg-gray-50 p-4 lg:p-6">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex items-center gap-4 mb-6">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="p-2 rounded-lg hover:bg-gray-200 transition-colors"
+                aria-label="Back to dashboard"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Nearby Reports</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Reports within 2km of your location • {reports.length} found
+                </p>
+              </div>
+            </div>
+
+            {reports.length === 0 ? (
+              <div className="text-center py-12">
+                <MapPin className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-600 text-lg font-medium">No reports found nearby</p>
+                <p className="text-gray-500 text-sm mt-2">Be the first to report an issue in your area!</p>
               </div>
             ) : (
-              <>
-                <MapContainer
-                  center={[userLocation.lat, userLocation.lng]}
-                  zoom={14}
-                  scrollWheelZoom={true}
-                  className="h-full w-full"
-                >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-
-                  {/* User Location Marker */}
-                  <Marker position={[userLocation.lat, userLocation.lng]}>
-                    <Popup className="custom-popup">
-                      <div className="flex items-center gap-2 p-1">
-                        <MapPin className="w-4 h-4 text-blue-600" />
-                        <div>
-                          <p className="font-semibold text-xs text-gray-900">Your Location</p>
-                          <p className="text-[10px] text-gray-500 font-mono">
-                            {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
-                          </p>
-                        </div>
-                      </div>
-                    </Popup>
-                  </Marker>
-
-                  {/* Demo Report Markers */}
-                  {demoReports.map((report) => (
-                    <Marker key={report.id} position={[report.lat, report.lng]}>
-                      <Popup className="custom-popup">
-                        <div className="p-2 space-y-1.5 min-w-[180px]">
-                          <h3 className="font-semibold text-sm text-gray-900">{report.title}</h3>
-                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
-                            {report.category}
-                          </div>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
-                </MapContainer>
-
-                {/* Location Error Toast */}
-                {locationError && (
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[2000] max-w-md w-[90%]">
-                    <div className="bg-white rounded-lg shadow-lg px-4 py-3 border border-red-200">
-                      <p className="text-sm text-gray-700">{locationError}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Floating Action Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsCreateModalOpen(true)}
-                  className="absolute bottom-5 right-5 z-[1000] flex items-center justify-center w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition-colors"
-                  aria-label="Create new report"
-                >
-                  <span className="text-2xl leading-none font-light">+</span>
-                </button>
-              </>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
+                {reports.map((report) => (
+                  <ReportCard key={report.id} report={report} onClick={() => handleReportClick(report)} />
+                ))}
+              </div>
             )}
           </div>
         </main>
       </div>
 
-      {/* Create Report Modal */}
-      <CreateReportModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        initialLocation={userLocation}
-      />
+      {/* Report Detail Modal */}
+      {selectedReport && (
+        <ReportDetailModal
+          report={selectedReport}
+          isOpen={isDetailModalOpen}
+          onClose={handleCloseModal}
+        />
+      )}
     </div>
   )
 }
 
-export default Dashboard
+export default NearbyReports
