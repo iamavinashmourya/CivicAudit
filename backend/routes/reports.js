@@ -99,6 +99,75 @@ router.post('/', auth, (req, res, next) => {
   });
 });
 
+// PUT /api/reports/:id/vote
+// Body: { "type": "up" } OR { "type": "down" }
+// Toggle behavior:
+// - If user already voted the same way, clicking again removes their vote
+// - If user voted opposite, it switches the vote
+router.put('/:id/vote', auth, async (req, res) => {
+  try {
+    const { type } = req.body; // 'up' | 'down'
+    if (type !== 'up' && type !== 'down') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid vote type. Must be "up" or "down".',
+      });
+    }
+
+    const report = await Report.findById(req.params.id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found.',
+      });
+    }
+
+    const userId = req.user._id;
+    const userIdStr = userId.toString();
+
+    // Determine current vote state BEFORE mutating arrays (for true toggle)
+    const hadUpvote = (report.upvotes || []).some((id) => id.toString() === userIdStr);
+    const hadDownvote = (report.downvotes || []).some((id) => id.toString() === userIdStr);
+
+    // Always remove any existing vote first
+    report.upvotes = (report.upvotes || []).filter((id) => id.toString() !== userIdStr);
+    report.downvotes = (report.downvotes || []).filter((id) => id.toString() !== userIdStr);
+
+    // Apply new vote unless it's a toggle-off of the same vote
+    const isTogglingOff =
+      (type === 'up' && hadUpvote) ||
+      (type === 'down' && hadDownvote);
+
+    if (!isTogglingOff) {
+      if (type === 'up') report.upvotes.push(userId);
+      if (type === 'down') report.downvotes.push(userId);
+    }
+
+    // Recompute score
+    report.score = (report.upvotes?.length || 0) - (report.downvotes?.length || 0);
+
+    // Auto-verify rule: if score >= 5, mark Verified (do not downgrade other statuses)
+    if (report.score >= 5 && report.status === 'Pending') {
+      report.status = 'Verified';
+    }
+
+    await report.save();
+
+    return res.json({
+      success: true,
+      score: report.score,
+      status: report.status,
+    });
+  } catch (error) {
+    console.error('Vote report error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message,
+    });
+  }
+});
+
 // GET /api/reports/nearby?lat=..&lng=..
 router.get('/nearby', auth, async (req, res) => {
   try {
@@ -187,6 +256,31 @@ router.get('/nearby', auth, async (req, res) => {
       });
     }
 
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message,
+    });
+  }
+});
+
+// GET /api/reports/me - Fetch current user's reports (newest first)
+router.get('/me', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const reports = await Report.find({ userId })
+      .sort({ createdAt: -1 })
+      .populate('userId', 'name phoneNumber')
+      .lean();
+
+    return res.json({
+      success: true,
+      reports,
+      count: reports.length,
+    });
+  } catch (error) {
+    console.error('My reports error:', error);
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
