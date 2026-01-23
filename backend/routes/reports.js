@@ -236,6 +236,14 @@ router.put('/:id/vote', auth, async (req, res) => {
 
     const userId = req.user._id;
     const userIdStr = userId.toString();
+    
+    // Prevent downvoting own reports (but allow upvoting)
+    if (type === 'down' && report.userId.toString() === userIdStr) {
+      return res.status(403).json({
+        success: false,
+        message: 'You cannot downvote your own report.',
+      });
+    }
 
     // Determine current vote state BEFORE mutating arrays (for true toggle)
     const hadUpvote = (report.upvotes || []).some((id) => id.toString() === userIdStr);
@@ -260,9 +268,9 @@ router.put('/:id/vote', auth, async (req, res) => {
 
     // SMART STATUS UPDATE (Civic Jury Correction Logic)
     
-    // CASE A: Community Trusts it (Score >= 5)
+    // CASE A: Community Trusts it (Score >= 3)
     // Set status to Verified if currently Pending
-    if (report.score >= 5) {
+    if (report.score >= 3) {
       if (report.status === 'Pending') {
         report.status = 'Verified';
         console.log(`✅ Community verified report (score: ${report.score})`);
@@ -275,8 +283,16 @@ router.put('/:id/vote', auth, async (req, res) => {
     // CASE B: Community Rejects it (Score <= -3)
     // Mark as Rejected (Spam/Fake) - even if AI verified it
     else if (report.score <= -3) {
+      // Only set rejectedAt if status is changing to Rejected (not already rejected)
+      if (report.status !== 'Rejected') {
+        report.rejectedAt = new Date();
+        console.log(`⛔ Community rejected report (score: ${report.score}) - will be auto-removed after 30-60 minutes`);
+      }
       report.status = 'Rejected';
-      console.log(`⛔ Community rejected report (score: ${report.score})`);
+    }
+    // If status changes away from Rejected, clear rejectedAt
+    else if (report.status === 'Rejected' && report.score > -3) {
+      report.rejectedAt = null;
     }
     // CASE C: Revoke Verification (Score < 0 on Verified report)
     // If it WAS Verified (by AI), but score drops below 0, remove the verified badge
@@ -285,10 +301,66 @@ router.put('/:id/vote', auth, async (req, res) => {
       console.log(`⚠️ Verification revoked by community (score: ${report.score})`);
     }
 
+    // PRIORITY UPDATE BASED ON COMMUNITY SUPPORT (Civic Jury Priority Boost)
+    // More upvotes = Higher priority (community validation)
+    const upvoteCount = report.upvotes?.length || 0;
+    const currentPriority = report.aiAnalysis?.priority || 'LOW';
+    
+    // Priority escalation based on upvotes:
+    // - 5+ upvotes → CRITICAL (high community trust)
+    // - 3-4 upvotes → HIGH (strong community support)
+    // - 2 upvotes → MEDIUM (moderate community support)
+    // - 0-1 upvotes → Keep current or LOW (minimal support)
+    let newPriority = currentPriority;
+    
+    if (upvoteCount >= 5) {
+      newPriority = 'CRITICAL';
+      if (currentPriority !== 'CRITICAL') {
+        console.log(`🚨 Priority escalated to CRITICAL (${upvoteCount} upvotes)`);
+      }
+    } else if (upvoteCount >= 3) {
+      newPriority = 'HIGH';
+      if (currentPriority === 'LOW' || currentPriority === 'MEDIUM') {
+        console.log(`⬆️ Priority escalated to HIGH (${upvoteCount} upvotes)`);
+      }
+    } else if (upvoteCount >= 2) {
+      newPriority = 'MEDIUM';
+      if (currentPriority === 'LOW') {
+        console.log(`⬆️ Priority escalated to MEDIUM (${upvoteCount} upvotes)`);
+      }
+    } else if (upvoteCount < 2 && currentPriority === 'CRITICAL') {
+      // If CRITICAL but low support, don't downgrade (might be AI-detected critical)
+      // Only downgrade if score is negative
+      if (report.score < 0) {
+        newPriority = 'HIGH';
+        console.log(`⬇️ Priority downgraded from CRITICAL to HIGH (low community support)`);
+      }
+    }
+    
+    // Update priority in aiAnalysis
+    if (!report.aiAnalysis) {
+      report.aiAnalysis = {};
+    }
+    report.aiAnalysis.priority = newPriority;
+    
+    // Update isCritical flag based on priority
+    report.aiAnalysis.isCritical = (newPriority === 'CRITICAL');
+
     await report.save();
+
+    // Populate userId for response
+    await report.populate('userId', 'name phoneNumber');
 
     return res.json({
       success: true,
+      report: {
+        _id: report._id,
+        id: report._id,
+        upvotes: report.upvotes || [],
+        downvotes: report.downvotes || [],
+        score: report.score,
+        status: report.status,
+      },
       score: report.score,
       status: report.status,
     });
@@ -347,6 +419,8 @@ router.get('/nearby', auth, async (req, res) => {
       coordinates: [longitude, latitude], // [lng, lat] - GeoJSON format
     };
 
+    const userId = req.user._id;
+    
     const reports = await Report.find({
       location: {
         $near: {
@@ -354,7 +428,8 @@ router.get('/nearby', auth, async (req, res) => {
           $maxDistance: 2000, // 2km radius in meters
         },
       },
-      status: { $ne: 'Rejected' }, // Exclude rejected reports from nearby results
+      status: { $nin: ['Rejected', 'Deleted'] }, // Exclude rejected and deleted reports (but include Pending)
+      userId: { $ne: userId }, // Exclude user's own reports from nearby results
     }).populate('userId', 'name phoneNumber').lean();
 
     console.log(`[Nearby Reports] Found ${reports.length} report(s) within 2km`);
@@ -404,7 +479,10 @@ router.get('/me', auth, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const reports = await Report.find({ userId })
+    const reports = await Report.find({ 
+      userId,
+      status: { $ne: 'Deleted' }, // Exclude deleted reports
+    })
       .sort({ createdAt: -1 })
       .populate('userId', 'name phoneNumber')
       .lean();
@@ -416,6 +494,45 @@ router.get('/me', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('My reports error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message,
+    });
+  }
+});
+
+// GET /api/reports/:id - Fetch a single report by ID
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const reportId = req.params.id;
+
+    const report = await Report.findById(reportId)
+      .populate('userId', 'name phoneNumber')
+      .lean();
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found',
+      });
+    }
+
+    return res.json({
+      success: true,
+      report,
+    });
+  } catch (error) {
+    console.error('Get report error:', error);
+    
+    // Handle invalid ObjectId
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid report ID',
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: 'Internal server error',

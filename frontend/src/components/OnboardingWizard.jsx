@@ -7,7 +7,23 @@ import Step4KYC from './onboarding/Step4KYC'
 import logoIcon from '../assets/icons/logo-icon.svg'
 
 function OnboardingWizard() {
-  const [currentStep, setCurrentStep] = useState(1)
+  // Try to restore step from sessionStorage if available (for page refresh)
+  const getInitialStep = () => {
+    try {
+      const savedStep = sessionStorage.getItem('onboardingStep')
+      if (savedStep) {
+        const step = parseInt(savedStep, 10)
+        if (step >= 1 && step <= 4) {
+          return step
+        }
+      }
+    } catch (e) {
+      console.error('Error reading saved step:', e)
+    }
+    return 1
+  }
+
+  const [currentStep, setCurrentStep] = useState(getInitialStep)
   const [formData, setFormData] = useState({
     profilePhoto: null,
     name: '',
@@ -20,6 +36,15 @@ function OnboardingWizard() {
   })
   const navigate = useNavigate()
 
+  // Save step to sessionStorage whenever it changes
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('onboardingStep', currentStep.toString())
+    } catch (e) {
+      console.error('Error saving step:', e)
+    }
+  }, [currentStep])
+
   useEffect(() => {
     // Check if user is logged in
     const token = localStorage.getItem('token')
@@ -28,11 +53,17 @@ function OnboardingWizard() {
       return
     }
 
-    // Pre-fill name from localStorage if available
+    // Check if onboarding is already completed
     const userData = localStorage.getItem('user')
     if (userData) {
       try {
         const user = JSON.parse(userData)
+        if (user.onboardingCompleted) {
+          // If onboarding is already completed, redirect to dashboard
+          navigate('/dashboard')
+          return
+        }
+        // Pre-fill name from localStorage if available
         if (user.name) {
           setFormData(prev => ({ ...prev, name: user.name }))
         }
@@ -48,7 +79,12 @@ function OnboardingWizard() {
 
   const handleNext = () => {
     if (currentStep < 4) {
-      setCurrentStep(currentStep + 1)
+      const nextStep = currentStep + 1
+      console.log('Moving from step', currentStep, 'to step', nextStep)
+      setCurrentStep(nextStep)
+    } else {
+      // If on last step, complete onboarding
+      handleComplete()
     }
   }
 
@@ -58,9 +94,28 @@ function OnboardingWizard() {
     }
   }
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
+    // Clear saved step from sessionStorage
+    try {
+      sessionStorage.removeItem('onboardingStep')
+    } catch (e) {
+      console.error('Error clearing saved step:', e)
+    }
+
+    // Update user data in localStorage to mark onboarding as completed
+    try {
+      const userData = localStorage.getItem('user')
+      if (userData) {
+        const user = JSON.parse(userData)
+        user.onboardingCompleted = true
+        localStorage.setItem('user', JSON.stringify(user))
+      }
+    } catch (e) {
+      console.error('Error updating user data:', e)
+    }
+    
     // Redirect to dashboard after completion
-    navigate('/dashboard')
+    navigate('/dashboard', { replace: true })
   }
 
   const steps = [

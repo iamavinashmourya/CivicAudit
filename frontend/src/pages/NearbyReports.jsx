@@ -127,7 +127,23 @@ function NearbyReports() {
             }
           })
 
-          setReports(transformedReports)
+          // Sort reports by priority: CRITICAL > HIGH > MEDIUM > LOW
+          const priorityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 }
+          const sortedReports = transformedReports.sort((a, b) => {
+            const priorityA = a.aiAnalysis?.priority || 'LOW'
+            const priorityB = b.aiAnalysis?.priority || 'LOW'
+            const orderA = priorityOrder[priorityA] ?? 3
+            const orderB = priorityOrder[priorityB] ?? 3
+            
+            // If same priority, sort by score (higher score first)
+            if (orderA === orderB) {
+              return (b.score || 0) - (a.score || 0)
+            }
+            
+            return orderA - orderB
+          })
+          
+          setReports(sortedReports)
         } else {
           setFetchError(response.message || 'Failed to fetch nearby reports')
           setReports([])
