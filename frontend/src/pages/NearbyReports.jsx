@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, ArrowLeft } from 'lucide-react'
+import { MapPin, ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
 import Layout from '../components/Layout'
-import { profileAPI } from '../utils/api'
+import { profileAPI, reportsAPI } from '../utils/api'
 import ReportCard from '../components/ReportCard'
 import ReportDetailModal from '../components/ReportDetailModal'
 
@@ -13,8 +13,16 @@ function NearbyReports() {
   const [selectedReport, setSelectedReport] = useState(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [userLocation, setUserLocation] = useState(null)
+  const [isFetchingReports, setIsFetchingReports] = useState(false)
+  const [fetchError, setFetchError] = useState('')
 
   const navigate = useNavigate()
+  
+  // Get API base URL (without /api for static files)
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
+  // Static files are served from root, not /api
+  // Extract base URL without /api suffix
+  const STATIC_BASE_URL = API_BASE_URL.replace(/\/api$/, '') || 'http://localhost:5002'
 
   useEffect(() => {
     const checkAuthAndOnboarding = async () => {
@@ -74,80 +82,69 @@ function NearbyReports() {
     )
   }, [])
 
-  // Fetch nearby reports (mock data for now)
+  // Fetch nearby reports from API
   useEffect(() => {
-    if (userLocation) {
-      // Mock reports within 2km - In production, this will call GET /api/reports/nearby
-      const mockReports = [
-        {
-          id: '1',
-          title: 'Pothole on Main Street',
-          category: 'Road',
-          description: 'Large pothole causing traffic issues. Needs immediate attention.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+1',
-          location: { lat: 22.3078, lng: 73.1819 },
-          status: 'Pending',
-          upvotes: 12,
-          downvotes: 2,
-          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-          userId: { name: 'John Doe' },
-        },
-        {
-          id: '2',
-          title: 'Overflowing Garbage Bin',
-          category: 'Garbage',
-          description: 'Garbage bin near the park is overflowing and spreading waste.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+2',
-          location: { lat: 22.3065, lng: 73.1825 },
-          status: 'Verified',
-          upvotes: 8,
-          downvotes: 1,
-          createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000), // 5 hours ago
-          userId: { name: 'Jane Smith' },
-        },
-        {
-          id: '3',
-          title: 'Streetlight Not Working',
-          category: 'Electricity',
-          description: 'Streetlight at the corner of Main and First Street has been out for 3 days.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+3',
-          location: { lat: 22.3082, lng: 73.1803 },
-          status: 'Pending',
-          upvotes: 15,
-          downvotes: 0,
-          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-          userId: { name: 'Mike Johnson' },
-        },
-        {
-          id: '4',
-          title: 'Water Leakage on Sidewalk',
-          category: 'Water',
-          description: 'Continuous water leakage from underground pipe creating puddles.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+4',
-          location: { lat: 22.3070, lng: 73.1815 },
-          status: 'Pending',
-          upvotes: 6,
-          downvotes: 1,
-          createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
-          userId: { name: 'Sarah Williams' },
-        },
-        {
-          id: '5',
-          title: 'Broken Traffic Sign',
-          category: 'Road',
-          description: 'Stop sign is bent and partially obscured by tree branches.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Report+5',
-          location: { lat: 22.3068, lng: 73.1820 },
-          status: 'Verified',
-          upvotes: 10,
-          downvotes: 2,
-          createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
-          userId: { name: 'David Brown' },
-        },
-      ]
-      setReports(mockReports)
+    const fetchNearbyReports = async () => {
+      if (!userLocation) return
+
+      setIsFetchingReports(true)
+      setFetchError('')
+
+      try {
+        const response = await reportsAPI.getNearbyReports(userLocation.lat, userLocation.lng)
+
+        if (response.success && response.reports) {
+          // Transform backend data to match ReportCard format
+          const transformedReports = response.reports.map((report) => {
+            // Backend returns location as GeoJSON: { type: 'Point', coordinates: [lng, lat] }
+            const coordinates = report.location?.coordinates || []
+            const lng = coordinates[0]
+            const lat = coordinates[1]
+
+            // Build full image URL (backend returns relative path like /uploads/reports/...)
+            // Static files are served from /uploads, not /api/uploads
+            const imageUrl = report.imageUrl
+              ? report.imageUrl.startsWith('http')
+                ? report.imageUrl
+                : `${STATIC_BASE_URL}${report.imageUrl}`
+              : 'https://via.placeholder.com/400x300?text=No+Image'
+
+            return {
+              id: report._id || report.id,
+              title: report.title || 'Untitled Report',
+              category: report.category || 'Other',
+              description: report.description || '',
+              imageUrl,
+              location: { lat, lng },
+              status: report.status || 'Pending',
+              // Preserve arrays for vote checking, but also provide counts
+              upvotes: Array.isArray(report.upvotes) ? report.upvotes : [],
+              downvotes: Array.isArray(report.downvotes) ? report.downvotes : [],
+              score: report.score || 0,
+              createdAt: new Date(report.createdAt),
+              userId: report.userId || { name: 'Unknown User' },
+              aiAnalysis: report.aiAnalysis || null,
+            }
+          })
+
+          setReports(transformedReports)
+        } else {
+          setFetchError(response.message || 'Failed to fetch nearby reports')
+          setReports([])
+        }
+      } catch (error) {
+        console.error('Error fetching nearby reports:', error)
+        setFetchError(
+          error.response?.data?.message || 'Failed to fetch nearby reports. Please try again.'
+        )
+        setReports([])
+      } finally {
+        setIsFetchingReports(false)
+      }
     }
-  }, [userLocation])
+
+    fetchNearbyReports()
+  }, [userLocation, API_BASE_URL])
 
   const filteredReports = reports
 
@@ -184,12 +181,37 @@ function NearbyReports() {
           </div>
         </div>
 
-        {filteredReports.length === 0 ? (
+        {/* Loading State */}
+        {isFetchingReports ? (
+          <div className="text-center py-12">
+            <Loader2 className="w-12 h-12 text-[#3B5CE8] animate-spin mx-auto mb-4" />
+            <p className="text-gray-700 text-lg font-semibold">Loading nearby reports...</p>
+            <p className="text-gray-500 text-sm mt-2">Finding reports within 2km of your location</p>
+          </div>
+        ) : fetchError ? (
+          <div className="text-center py-12">
+            <AlertCircle className="w-16 h-16 text-red-300 mx-auto mb-4" />
+            <p className="text-gray-700 text-lg font-semibold">Error loading reports</p>
+            <p className="text-gray-500 text-sm mt-2">{fetchError}</p>
+            <button
+              onClick={() => {
+                setFetchError('')
+                if (userLocation) {
+                  // Trigger refetch by updating location slightly
+                  setUserLocation({ ...userLocation })
+                }
+              }}
+              className="mt-4 px-4 py-2 bg-[#3B5CE8] text-white rounded-lg hover:bg-[#3149ba] transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : filteredReports.length === 0 ? (
           <div className="text-center py-12">
             <MapPin className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-700 text-lg font-semibold">No reports found</p>
             <p className="text-gray-500 text-sm mt-2">
-              Try changing the filter, or create the first report in your area.
+              No reports found within 2km of your location. Be the first to create a report in your area!
             </p>
           </div>
         ) : (

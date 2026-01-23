@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { History, ArrowLeft } from 'lucide-react'
+import { History, ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
 import Layout from '../components/Layout'
-import { profileAPI } from '../utils/api'
+import { profileAPI, reportsAPI } from '../utils/api'
 import ReportCard from '../components/ReportCard'
 import ReportDetailModal from '../components/ReportDetailModal'
 
@@ -12,8 +12,14 @@ function ReportHistory() {
   const [reports, setReports] = useState([])
   const [selectedReport, setSelectedReport] = useState(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isFetchingReports, setIsFetchingReports] = useState(false)
+  const [fetchError, setFetchError] = useState('')
 
   const navigate = useNavigate()
+  
+  // Get API base URL for image URLs
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
+  const STATIC_BASE_URL = API_BASE_URL.replace(/\/api$/, '') || 'http://localhost:5002'
 
   useEffect(() => {
     const checkAuthAndOnboarding = async () => {
@@ -48,80 +54,68 @@ function ReportHistory() {
     checkAuthAndOnboarding()
   }, [navigate])
 
-  // Fetch user's reports (mock data for now)
+  // Fetch user's reports from API
   useEffect(() => {
-    if (user) {
-      // Mock reports created by the user - In production, this will call GET /api/reports/my-reports
-      const mockUserReports = [
-        {
-          id: '1',
-          title: 'Pothole on Main Street',
-          category: 'Road',
-          description: 'Large pothole causing traffic issues. Needs immediate attention.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Pothole+Report',
-          location: { lat: 22.3078, lng: 73.1819 },
-          status: 'Verified',
-          upvotes: 12,
-          downvotes: 2,
-          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-          userId: { name: user.name || 'You' },
-        },
-        {
-          id: '2',
-          title: 'Broken Streetlight',
-          category: 'Electricity',
-          description: 'Streetlight not working for the past week, making the area unsafe at night.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Streetlight+Report',
-          location: { lat: 22.3065, lng: 73.1825 },
-          status: 'Pending',
-          upvotes: 8,
-          downvotes: 1,
-          createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
-          userId: { name: user.name || 'You' },
-        },
-        {
-          id: '3',
-          title: 'Water Leakage Issue',
-          category: 'Water',
-          description: 'Continuous water leakage from the main pipeline near the park.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Water+Leak+Report',
-          location: { lat: 22.3082, lng: 73.1803 },
-          status: 'Resolved',
-          upvotes: 15,
-          downvotes: 0,
-          createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), // 10 days ago
-          userId: { name: user.name || 'You' },
-        },
-        {
-          id: '4',
-          title: 'Overflowing Garbage Bin',
-          category: 'Garbage',
-          description: 'Garbage bin near residential area is overflowing and causing hygiene issues.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Garbage+Report',
-          location: { lat: 22.3070, lng: 73.1815 },
-          status: 'Pending',
-          upvotes: 6,
-          downvotes: 1,
-          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-          userId: { name: user.name || 'You' },
-        },
-        {
-          id: '5',
-          title: 'Damaged Road Sign',
-          category: 'Road',
-          description: 'Traffic sign is damaged and needs replacement for safety.',
-          imageUrl: 'https://via.placeholder.com/400x300?text=Road+Sign+Report',
-          location: { lat: 22.3068, lng: 73.1820 },
-          status: 'Verified',
-          upvotes: 10,
-          downvotes: 2,
-          createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
-          userId: { name: user.name || 'You' },
-        },
-      ]
-      setReports(mockUserReports)
+    const fetchUserReports = async () => {
+      if (!user) return
+
+      setIsFetchingReports(true)
+      setFetchError('')
+
+      try {
+        const response = await reportsAPI.getMyReports()
+
+        if (response.success && response.reports) {
+          // Transform backend data to match ReportCard format
+          const transformedReports = response.reports.map((report) => {
+            // Backend returns location as GeoJSON: { type: 'Point', coordinates: [lng, lat] }
+            const coordinates = report.location?.coordinates || []
+            const lng = coordinates[0]
+            const lat = coordinates[1]
+
+            // Build full image URL (backend returns relative path like /uploads/reports/...)
+            const imageUrl = report.imageUrl
+              ? report.imageUrl.startsWith('http')
+                ? report.imageUrl
+                : `${STATIC_BASE_URL}${report.imageUrl}`
+              : 'https://via.placeholder.com/400x300?text=No+Image'
+
+            return {
+              id: report._id || report.id,
+              title: report.title || 'Untitled Report',
+              category: report.category || 'Other',
+              description: report.description || '',
+              imageUrl,
+              location: { lat, lng },
+              status: report.status || 'Pending',
+              // Preserve arrays for vote checking
+              upvotes: Array.isArray(report.upvotes) ? report.upvotes : [],
+              downvotes: Array.isArray(report.downvotes) ? report.downvotes : [],
+              score: report.score || 0,
+              createdAt: new Date(report.createdAt),
+              userId: report.userId || { name: user.name || 'You' },
+              aiAnalysis: report.aiAnalysis || null,
+            }
+          })
+
+          setReports(transformedReports)
+        } else {
+          setFetchError(response.message || 'Failed to fetch your reports')
+          setReports([])
+        }
+      } catch (error) {
+        console.error('Error fetching user reports:', error)
+        setFetchError(
+          error.response?.data?.message || 'Failed to fetch your reports. Please try again.'
+        )
+        setReports([])
+      } finally {
+        setIsFetchingReports(false)
+      }
     }
-  }, [user])
+
+    fetchUserReports()
+  }, [user, STATIC_BASE_URL])
 
   const handleReportClick = (report) => {
     setSelectedReport(report)
@@ -156,7 +150,71 @@ function ReportHistory() {
           </div>
         </div>
 
-        {reports.length === 0 ? (
+        {/* Loading State */}
+        {isFetchingReports ? (
+          <div className="text-center py-12">
+            <Loader2 className="w-12 h-12 text-[#3B5CE8] animate-spin mx-auto mb-4" />
+            <p className="text-gray-700 text-lg font-semibold">Loading your reports...</p>
+            <p className="text-gray-500 text-sm mt-2">Fetching reports you've submitted</p>
+          </div>
+        ) : fetchError ? (
+          <div className="text-center py-12">
+            <AlertCircle className="w-16 h-16 text-red-300 mx-auto mb-4" />
+            <p className="text-gray-700 text-lg font-semibold">Error loading reports</p>
+            <p className="text-gray-500 text-sm mt-2">{fetchError}</p>
+            <button
+              onClick={() => {
+                setFetchError('')
+                if (user) {
+                  // Trigger refetch
+                  const fetchUserReports = async () => {
+                    setIsFetchingReports(true)
+                    try {
+                      const response = await reportsAPI.getMyReports()
+                      if (response.success && response.reports) {
+                        // Transform data (same as above)
+                        const transformedReports = response.reports.map((report) => {
+                          const coordinates = report.location?.coordinates || []
+                          const lng = coordinates[0]
+                          const lat = coordinates[1]
+                          const imageUrl = report.imageUrl
+                            ? report.imageUrl.startsWith('http')
+                              ? report.imageUrl
+                              : `${STATIC_BASE_URL}${report.imageUrl}`
+                            : 'https://via.placeholder.com/400x300?text=No+Image'
+                          return {
+                            id: report._id || report.id,
+                            title: report.title || 'Untitled Report',
+                            category: report.category || 'Other',
+                            description: report.description || '',
+                            imageUrl,
+                            location: { lat, lng },
+                            status: report.status || 'Pending',
+                            upvotes: Array.isArray(report.upvotes) ? report.upvotes : [],
+                            downvotes: Array.isArray(report.downvotes) ? report.downvotes : [],
+                            score: report.score || 0,
+                            createdAt: new Date(report.createdAt),
+                            userId: report.userId || { name: user.name || 'You' },
+                            aiAnalysis: report.aiAnalysis || null,
+                          }
+                        })
+                        setReports(transformedReports)
+                      }
+                    } catch (error) {
+                      setFetchError('Failed to fetch reports. Please try again.')
+                    } finally {
+                      setIsFetchingReports(false)
+                    }
+                  }
+                  fetchUserReports()
+                }
+              }}
+              className="mt-4 px-4 py-2 bg-[#3B5CE8] text-white rounded-lg hover:bg-[#3149ba] transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : reports.length === 0 ? (
           <div className="text-center py-12">
             <History className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-700 text-lg font-semibold">No reports found</p>
