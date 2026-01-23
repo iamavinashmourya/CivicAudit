@@ -4,15 +4,12 @@ Thank you for your interest in contributing to CivicAudit! This document provide
 
 ## Getting Started
 
-1. **Fork the repository** on GitHub
-2. **Clone your fork** locally:
+Since teammates are added as collaborators, you can work directly on the main repository.
+
+1. **Clone the repository**:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/CivicAudit.git
+   git clone https://github.com/iamavinashmourya/CivicAudit.git
    cd CivicAudit
-   ```
-3. **Add the upstream remote**:
-   ```bash
-   git remote add upstream https://github.com/iamavinashmourya/CivicAudit.git
    ```
 
 ## Development Workflow
