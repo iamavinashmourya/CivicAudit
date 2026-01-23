@@ -2,22 +2,40 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure upload directory exists
-const uploadDir = path.join(__dirname, '../uploads/profile-photos');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+// Ensure upload directories exist
+const profileUploadDir = path.join(__dirname, '../uploads/profile-photos');
+const reportUploadDir = path.join(__dirname, '../uploads/reports');
+
+if (!fs.existsSync(profileUploadDir)) {
+  fs.mkdirSync(profileUploadDir, { recursive: true });
 }
 
-// Configure storage
-const storage = multer.diskStorage({
+if (!fs.existsSync(reportUploadDir)) {
+  fs.mkdirSync(reportUploadDir, { recursive: true });
+}
+
+// Configure storage for profile photos
+const profileStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadDir);
+    cb(null, profileUploadDir);
   },
   filename: (req, file, cb) => {
     // Generate unique filename: timestamp-random-originalname
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
     cb(null, `profile-${uniqueSuffix}${ext}`);
+  }
+});
+
+// Configure storage for report images
+const reportStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, reportUploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `report-${uniqueSuffix}${ext}`);
   }
 });
 
@@ -34,9 +52,17 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer
-const upload = multer({
-  storage: storage,
+// Configure multer instances
+const profileUpload = multer({
+  storage: profileStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB max
+  },
+  fileFilter: fileFilter
+});
+
+const reportUpload = multer({
+  storage: reportStorage,
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB max
   },
@@ -44,9 +70,43 @@ const upload = multer({
 });
 
 // Middleware for single file upload
-const uploadProfilePhoto = upload.single('profilePhoto');
+const uploadProfilePhoto = profileUpload.single('profilePhoto');
+
+// For report images, accept both 'image' and 'Image' (case-insensitive handling)
+const uploadReportImage = (req, res, next) => {
+  // Use .any() to accept any field name, then manually check for image file
+  reportUpload.any()(req, res, (err) => {
+    if (err) {
+      return next(err);
+    }
+    
+    // Find the image file (case-insensitive field name matching)
+    let imageFile = null;
+    
+    if (req.files && req.files.length > 0) {
+      // Find file with fieldname that matches 'image' (case-insensitive)
+      imageFile = req.files.find(f => f.fieldname.toLowerCase() === 'image');
+      
+      // If no match found, use the first file (fallback for any field name)
+      if (!imageFile) {
+        imageFile = req.files[0];
+        console.warn(`Warning: File uploaded with field name "${imageFile.fieldname}", expected "image"`);
+      }
+    }
+    
+    // Attach the file to req.file for compatibility with existing code
+    req.file = imageFile;
+    
+    // Remove req.files to avoid confusion
+    delete req.files;
+    
+    next();
+  });
+};
 
 module.exports = {
   uploadProfilePhoto,
-  uploadDir
+  uploadReportImage,
+  profileUploadDir,
+  reportUploadDir
 };

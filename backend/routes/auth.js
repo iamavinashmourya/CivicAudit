@@ -250,7 +250,10 @@ router.post('/verify-otp', async (req, res) => {
     );
 
     // Determine if onboarding is required
-    const requiresOnboarding = isNewUser || !user.onboardingCompleted;
+    // Hackathon rule: run full verification/onboarding only for *new users during signup*.
+    // Once a user account exists, logging in again should NOT re-trigger onboarding,
+    // even if onboardingCompleted is still false.
+    const requiresOnboarding = isNewUser;
 
     res.json({
       success: true,

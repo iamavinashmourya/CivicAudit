@@ -35,7 +35,7 @@ app.get('/', (req, res) => {
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/profile', require('./routes/profile'));
-// app.use('/api/reports', require('./routes/reports'));
+app.use('/api/reports', require('./routes/reports'));
 // app.use('/api/admin', require('./routes/admin'));
 
 // Default to 5002 to avoid common conflicts (5000 is often used by other dev servers on Windows)
