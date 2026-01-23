@@ -1,0 +1,39 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" fill="none">
+
+  <!-- Left Orbit -->
+  <path d="M24 64C24 44 42 34 56 34" stroke="#5BC0BE" stroke-width="4" stroke-linecap="round"></path>
+  <circle cx="24" cy="64" r="6" fill="#5BC0BE"></circle>
+
+  <!-- Right Orbit -->
+  <path d="M104 64C104 44 86 34 72 34" stroke="#9AA3A8" stroke-width="4" stroke-linecap="round"></path>
+  <circle cx="104" cy="64" r="6" fill="#9AA3A8"></circle>
+
+  <!-- Pin Shape (Unified) -->
+  <path d="M64 12
+       C42 12 28 26 28 44
+       C28 64 48 82 64 104
+       C80 82 100 64 100 44
+       C100 26 86 12 64 12Z" fill="#1F6AE1"></path>
+
+  <!-- Diagonal Civic Division -->
+  <path d="M28 44
+       C28 64 48 82 64 104
+       C80 82 100 64 100 44
+       L28 44Z" fill="#2FA84F"></path>
+
+  <!-- Shield -->
+  <path d="M64 32
+       L46 38
+       V56
+       C46 68 54 76 64 80
+       C74 76 82 68 82 56
+       V38
+       L64 32Z" fill="#FFFFFF"></path>
+
+  <!-- Checkmark -->
+  <path d="M56 56L62 62L74 50" stroke="#2FA84F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+
+  <!-- Base Shadow -->
+  <ellipse cx="64" cy="110" rx="20" ry="5" fill="#000000" opacity="0.08"></ellipse>
+
+</svg>
