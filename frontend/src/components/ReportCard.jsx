@@ -1,4 +1,4 @@
-import { MapPin, Clock, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { MapPin, Clock } from 'lucide-react'
 
 function ReportCard({ report, onClick }) {
   const getCategoryEmoji = (category) => {
@@ -36,7 +36,12 @@ function ReportCard({ report, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden border border-gray-200 group"
+      className="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden border border-gray-200 group focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onClick?.()
+      }}
     >
       {/* Image */}
       <div className="relative w-full h-48 overflow-hidden bg-gray-100">
@@ -67,7 +72,7 @@ function ReportCard({ report, onClick }) {
         <p className="text-sm text-gray-600 mb-3 line-clamp-2">{report.description}</p>
 
         {/* Meta Info */}
-        <div className="flex items-center gap-4 text-xs text-gray-500 mb-3">
+        <div className="flex items-center gap-4 text-xs text-gray-500">
           <div className="flex items-center gap-1">
             <Clock className="w-3.5 h-3.5" />
             <span>{formatTimeAgo(report.createdAt)}</span>
@@ -75,21 +80,6 @@ function ReportCard({ report, onClick }) {
           <div className="flex items-center gap-1">
             <MapPin className="w-3.5 h-3.5" />
             <span>{report.category}</span>
-          </div>
-        </div>
-
-        {/* Votes */}
-        <div className="flex items-center gap-4 pt-3 border-t border-gray-100">
-          <div className="flex items-center gap-1.5 text-green-600">
-            <ThumbsUp className="w-4 h-4" />
-            <span className="text-sm font-medium">{report.upvotes}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-red-600">
-            <ThumbsDown className="w-4 h-4" />
-            <span className="text-sm font-medium">{report.downvotes}</span>
-          </div>
-          <div className="ml-auto text-xs text-gray-500">
-            by {report.userId?.name || 'Anonymous'}
           </div>
         </div>
       </div>

@@ -3,6 +3,8 @@ import Login from './components/Login'
 import Signup from './components/Signup'
 import Dashboard from './pages/Dashboard'
 import NearbyReports from './pages/NearbyReports'
+import ReportHistory from './pages/ReportHistory'
+import Profile from './pages/Profile'
 import OnboardingWizard from './components/OnboardingWizard'
 import './App.css'
 
@@ -15,6 +17,8 @@ function App() {
         <Route path="/onboarding" element={<OnboardingWizard />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/nearby-reports" element={<NearbyReports />} />
+        <Route path="/report-history" element={<ReportHistory />} />
+        <Route path="/profile" element={<Profile />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>
