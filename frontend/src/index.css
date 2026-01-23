@@ -45,3 +45,50 @@ body {
 .leaflet-control-attribution {
   display: none !important;
 }
+
+/* Custom Marker Pulse Animation for CRITICAL Reports */
+@keyframes pulse-red {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 0 15px rgba(220, 38, 38, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+.marker-pulse {
+  animation: pulse-red 1.5s infinite;
+}
+
+/* Custom Marker Styling */
+.custom-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.custom-marker-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.custom-marker-pin {
+  transition: transform 0.2s ease;
+}
+
+.custom-marker-pin:hover {
+  transform: scale(1.1);
+}
+
+/* Civic Popup Styling */
+.civic-popup .leaflet-popup-content-wrapper {
+  border-radius: 0.75rem;
+  padding: 0;
+}
+
+.civic-popup .leaflet-popup-content {
+  margin: 0;
+  padding: 0;
+}

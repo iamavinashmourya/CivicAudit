@@ -64,6 +64,19 @@ function Step4KYC({ aadhaarNumber, onUpdate, onComplete, onBack }) {
         setIsVerified(true)
         onUpdate({ aadhaarNumber: cleanedAadhaar })
         
+        // Update user data in localStorage
+        try {
+          const userData = localStorage.getItem('user')
+          if (userData) {
+            const user = JSON.parse(userData)
+            user.onboardingCompleted = response.user?.onboardingCompleted || true
+            user.isVerified = response.user?.isVerified || true
+            localStorage.setItem('user', JSON.stringify(user))
+          }
+        } catch (e) {
+          console.error('Error updating user data:', e)
+        }
+        
         // Wait a moment to show success animation, then complete
         setTimeout(() => {
           onComplete()

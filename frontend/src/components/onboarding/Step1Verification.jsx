@@ -95,8 +95,25 @@ function Step1Verification({ profilePhoto, onUpdate, onNext }) {
     try {
       const response = await profileAPI.uploadPhoto(file)
       if (response.success) {
+        // Update form data first
         onUpdate({ profilePhoto: response.profilePhoto })
-        onNext()
+        
+        // Update user data in localStorage if available
+        try {
+          const userData = localStorage.getItem('user')
+          if (userData) {
+            const user = JSON.parse(userData)
+            user.profilePhoto = response.profilePhoto
+            localStorage.setItem('user', JSON.stringify(user))
+          }
+        } catch (e) {
+          console.error('Error updating user data:', e)
+        }
+        
+        // Move to next step after a brief delay to ensure state is updated
+        setTimeout(() => {
+          onNext()
+        }, 100)
       } else {
         setError(response.message || 'Failed to upload photo')
       }
