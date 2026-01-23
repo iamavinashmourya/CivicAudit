@@ -11,6 +11,11 @@ const reportSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  description: {
+    type: String,
+    trim: true,
+    default: '',
+  },
   category: {
     type: String,
     required: true,
@@ -32,8 +37,32 @@ const reportSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Verified', 'Resolved'],
+    enum: ['Pending', 'Verified', 'Resolved', 'Rejected'],
     default: 'Pending',
+  },
+  // AI Analysis fields
+  aiAnalysis: {
+    priority: {
+      type: String,
+      enum: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
+      default: 'LOW',
+    },
+    isCritical: {
+      type: Boolean,
+      default: false,
+    },
+    sentimentScore: {
+      type: Number,
+      default: 0,
+    },
+    keywords: {
+      type: [String],
+      default: [],
+    },
+    processedAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
   // Civic Jury fields
   // Track who voted to prevent duplicate voting and enable toggling

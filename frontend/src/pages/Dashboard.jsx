@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
-import { MapPin, CheckCircle2 } from 'lucide-react'
+import { MapPin, CheckCircle2, Plus } from 'lucide-react'
 import Layout from '../components/Layout'
+import CreateReportModal from '../components/CreateReportModal'
 
 function Dashboard() {
   const [user, setUser] = useState(null)
@@ -10,6 +11,7 @@ function Dashboard() {
   const [userLocation, setUserLocation] = useState(null)
   const [isLocating, setIsLocating] = useState(true)
   const [locationError, setLocationError] = useState('')
+  const [isCreateReportModalOpen, setIsCreateReportModalOpen] = useState(false)
 
   const demoReports = [
     {
@@ -173,6 +175,22 @@ function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Floating Action Button - Create Report */}
+        <button
+          onClick={() => setIsCreateReportModalOpen(true)}
+          className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-[500] w-14 h-14 lg:w-16 lg:h-16 bg-gradient-to-r from-[#3B5CE8] to-[#14B8A6] hover:from-[#3149ba] hover:to-[#0d9488] text-white rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-110 active:scale-95 flex items-center justify-center group"
+          aria-label="Create new report"
+        >
+          <Plus className="w-6 h-6 lg:w-7 lg:h-7 transition-transform group-hover:rotate-90" strokeWidth={2.5} />
+        </button>
+
+        {/* Create Report Modal */}
+        <CreateReportModal
+          isOpen={isCreateReportModalOpen}
+          onClose={() => setIsCreateReportModalOpen(false)}
+          initialLocation={userLocation}
+        />
       </div>
     </Layout>
   )

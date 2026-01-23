@@ -78,6 +78,8 @@ Content-Type: application/json
 
 ## Step 2: Create Report API
 
+> **🛡️ Gatekeeper Testing**: For detailed Postman testing of the AI Gatekeeper (image+text detection), see [POSTMAN_GATEKEEPER_TEST.md](./POSTMAN_GATEKEEPER_TEST.md)
+
 ### 2.1 POST /api/reports
 
 **Endpoint:** `POST http://localhost:5002/api/reports`
