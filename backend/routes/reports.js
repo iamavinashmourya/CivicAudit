@@ -121,24 +121,72 @@ router.get('/nearby', auth, async (req, res) => {
       });
     }
 
+    // Validate coordinate ranges
+    if (latitude < -90 || latitude > 90) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude must be between -90 and 90',
+      });
+    }
+
+    if (longitude < -180 || longitude > 180) {
+      return res.status(400).json({
+        success: false,
+        message: 'Longitude must be between -180 and 180',
+      });
+    }
+
+    // Debug logging
+    console.log(`[Nearby Reports] Query: lat=${latitude}, lng=${longitude}`);
+
+    const queryPoint = {
+      type: 'Point',
+      coordinates: [longitude, latitude], // [lng, lat] - GeoJSON format
+    };
+
     const reports = await Report.find({
       location: {
         $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [longitude, latitude], // [lng, lat]
-          },
-          $maxDistance: 2000, // 2km radius
+          $geometry: queryPoint,
+          $maxDistance: 2000, // 2km radius in meters
         },
       },
-    }).populate('userId', 'name');
+    }).populate('userId', 'name phoneNumber').lean();
+
+    console.log(`[Nearby Reports] Found ${reports.length} report(s) within 2km`);
+
+    // Format response - ensure coordinates are properly formatted
+    const formattedReports = reports.map(report => ({
+      ...report,
+      location: {
+        type: report.location.type || 'Point',
+        coordinates: report.location.coordinates, // Already [lng, lat]
+      },
+    }));
 
     return res.json({
       success: true,
-      reports,
+      reports: formattedReports,
+      query: {
+        lat: latitude,
+        lng: longitude,
+        radius: '2km',
+      },
+      count: formattedReports.length,
     });
   } catch (error) {
     console.error('Nearby reports error:', error);
+    
+    // Check if it's a geospatial index error
+    if (error.message && error.message.includes('index')) {
+      return res.status(500).json({
+        success: false,
+        message: 'Geospatial index not found. Please ensure the location index is created.',
+        error: error.message,
+        hint: 'Run: db.reports.createIndex({ location: "2dsphere" })',
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: 'Internal server error',

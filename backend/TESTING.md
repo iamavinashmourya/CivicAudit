@@ -132,14 +132,25 @@ Content-Type: multipart/form-data
 
 ### 3.1 GET /api/reports/nearby
 
-**Endpoint:** `GET http://localhost:5002/api/reports/nearby?lat=22.3072&lng=73.1812`
+**Endpoint:** `GET http://localhost:5002/api/reports/nearby?lat=<latitude>&lng=<longitude>`
 
 **Headers:**
 ```
 Authorization: Bearer <YOUR_JWT_TOKEN>
 ```
 
-**Expected Response (200 OK):**
+**Important Notes:**
+- The API searches for reports within a **2km radius** of the given coordinates
+- If you get an empty array `[]`, it means no reports exist within 2km of your query point
+- To test with an existing report, use coordinates that are within 2km of where you created the report
+- Coordinates format: `lat` (latitude) and `lng` (longitude) as decimal degrees
+
+**Example Query:**
+```
+GET http://localhost:5002/api/reports/nearby?lat=22.291462&lng=73.363326
+```
+
+**Expected Response (200 OK) - With Reports:**
 ```json
 {
   "success": true,
@@ -148,30 +159,58 @@ Authorization: Bearer <YOUR_JWT_TOKEN>
       "_id": "...",
       "userId": {
         "_id": "...",
-        "name": "John Doe"
+        "name": "John Doe",
+        "phoneNumber": "+919876543210"
       },
       "title": "Pothole on Main Road",
       "category": "Road",
       "imageUrl": "/uploads/reports/report-1234567890-987654321.jpg",
       "location": {
         "type": "Point",
-        "coordinates": [73.1812, 22.3072]
+        "coordinates": [73.363326, 22.291462]
       },
       "status": "Pending",
       "createdAt": "2026-01-21T..."
     }
-  ]
+  ],
+  "query": {
+    "lat": 22.291462,
+    "lng": 73.363326,
+    "radius": "2km"
+  },
+  "count": 1
+}
+```
+
+**Expected Response (200 OK) - No Reports Nearby:**
+```json
+{
+  "success": true,
+  "reports": [],
+  "query": {
+    "lat": 22.3072,
+    "lng": 73.1812,
+    "radius": "2km"
+  },
+  "count": 0
 }
 ```
 
 **Test Cases:**
-1. ✅ Valid coordinates → Should return reports within 2km
-2. ✅ No reports nearby → Should return empty array `[]`
+1. ✅ Valid coordinates with nearby reports → Should return array with reports
+2. ✅ Valid coordinates with no nearby reports → Should return empty array `[]` with `count: 0`
 3. ✅ Missing `lat` parameter → Should return 400
 4. ✅ Missing `lng` parameter → Should return 400
 5. ✅ Invalid `lat`/`lng` (non-numeric) → Should return 400
-6. ✅ Without Authorization header → Should return 401
-7. ✅ Invalid/expired token → Should return 401
+6. ✅ Invalid `lat` (outside -90 to 90) → Should return 400
+7. ✅ Invalid `lng` (outside -180 to 180) → Should return 400
+8. ✅ Without Authorization header → Should return 401
+9. ✅ Invalid/expired token → Should return 401
+
+**Testing Tips:**
+- If you created a report at coordinates `lat=22.291462, lng=73.363326`, query with those exact coordinates or nearby ones (within 2km)
+- To find reports near a specific location, use coordinates close to where reports were created
+- The `coordinates` in the response are in GeoJSON format: `[longitude, latitude]` (note: lng first, then lat)
 
 ---
 
@@ -248,11 +287,39 @@ db.reports.getIndexes()
 - `lat` and `lng` are valid numbers
 - Image file is JPG/PNG and under 5MB
 
-### Issue: Nearby reports returns empty array
+### Issue: Nearby reports returns empty array `[]`
 **Solution:** 
-- Make sure you've created at least one report first
-- Check that the `lat`/`lng` in your query are within 2km of the report location
-- Verify geospatial index exists: `db.reports.getIndexes()`
+1. **Verify reports exist in database:**
+   ```javascript
+   // In MongoDB shell or Compass
+   db.reports.find().pretty()
+   ```
+
+2. **Check the distance:**
+   - The API searches within **2km radius** only
+   - If your query coordinates are far from the report location, you'll get an empty array
+   - Example: Report at `[73.363326, 22.291462]` won't show up if you query `lat=22.3072&lng=73.1812` (distance ~18km)
+
+3. **Test with correct coordinates:**
+   - Use coordinates that match or are very close to where you created the report
+   - Or create a new report and immediately query with those same coordinates
+
+4. **Verify geospatial index exists:**
+   ```javascript
+   // In MongoDB shell
+   db.reports.getIndexes()
+   // Should show: { "location": "2dsphere" }
+   ```
+
+5. **Check backend console logs:**
+   - The API now logs: `[Nearby Reports] Query: lat=... lng=...`
+   - And: `[Nearby Reports] Found X report(s) within 2km`
+   - This helps debug what's happening
+
+**Example:**
+- If you created a report with `lat=22.291462, lng=73.363326`
+- Query with: `GET /api/reports/nearby?lat=22.291462&lng=73.363326`
+- Or nearby coordinates within 2km (e.g., `lat=22.2915&lng=73.3633`)
 
 ---
 
