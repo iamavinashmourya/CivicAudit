@@ -1,5 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
 
 const { uploadReportImage } = require('../middleware/upload');
 const auth = require('../middleware/auth');
@@ -27,7 +30,7 @@ router.post('/', auth, (req, res, next) => {
     }
 
     try {
-      const { title, category, lat, lng } = req.body;
+      const { title, description, category, lat, lng } = req.body;
 
       if (!title || !title.trim()) {
         return res.status(400).json({
@@ -70,16 +73,125 @@ router.post('/', auth, (req, res, next) => {
       // Build image URL relative to /uploads/reports
       const imageUrl = `/uploads/reports/${req.file.filename}`;
 
+      // 1. Prepare text for AI analysis
+      // Combine title and description for better analysis (both may contain important keywords)
+      const textToAnalyze = [title, description].filter(Boolean).join('. ').trim();
+      
+      // Debug logging
+      console.log(`[AI Integration] Text to analyze: "${textToAnalyze.substring(0, 100)}${textToAnalyze.length > 100 ? '...' : ''}"`);
+      console.log(`[AI Integration] Has description: ${!!description}, Has title: ${!!title}`);
+
+      // 2. Default AI result (fallback if Python service is down)
+      let aiData = {
+        priority: 'LOW',
+        is_critical: false,
+        suggested_category: category,
+        scores: { sentiment: 0 },
+        keywords_detected: {},
+      };
+
+      // 3. Call Python AI Service with Image + Text (Gatekeeper)
+      if (textToAnalyze.length > 2 && req.file) {
+        try {
+          const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:5001';
+          console.log(`[AI Integration] Calling AI service at ${aiServiceUrl}/analyze with image`);
+          
+          // Prepare FormData with image and text
+          const form = new FormData();
+          form.append('text', textToAnalyze);
+          form.append('image', fs.createReadStream(req.file.path));
+
+          const aiResponse = await axios.post(
+            `${aiServiceUrl}/analyze`,
+            form,
+            {
+              headers: form.getHeaders(),
+              timeout: 10000 // 10 seconds for image processing
+            }
+          );
+
+          console.log(`[AI Integration] AI Response status: ${aiResponse.data.status}`);
+          console.log(`[AI Integration] AI Response data:`, JSON.stringify(aiResponse.data, null, 2));
+
+          if (aiResponse.data.status === 'success') {
+            aiData = aiResponse.data.analysis;
+            console.log(`🤖 AI Service Success: ${aiData.priority} (is_critical: ${aiData.is_critical})`);
+          } else {
+            console.warn(`[AI Integration] AI service returned non-success status: ${aiResponse.data.status}`);
+          }
+        } catch (aiError) {
+          // HANDLE REJECTION (The "Cat Photo" Scenario)
+          if (aiError.response && aiError.response.status === 400) {
+            const rejectionData = aiError.response.data;
+            console.log(`⛔ AI BLOCKED REPORT: ${rejectionData.reason || 'Image mismatch'}`);
+            return res.status(400).json({
+              success: false,
+              message: rejectionData.message || 'Report Rejected by AI',
+              reason: rejectionData.reason || 'Image does not match description',
+            });
+          }
+          
+          // Other errors - continue with defaults (graceful degradation)
+          console.error('⚠️ AI Service Error (Continuing anyway):', aiError.message);
+          if (aiError.response) {
+            console.error(`[AI Integration] AI Error Response Status: ${aiError.response.status}`);
+            console.error(`[AI Integration] AI Error Response Data:`, aiError.response.data);
+          }
+          if (aiError.code) {
+            console.error(`[AI Integration] Error Code: ${aiError.code}`);
+          }
+          if (aiError.request) {
+            console.error(`[AI Integration] Request made but no response received`);
+          }
+        }
+      } else {
+        if (!req.file) {
+          console.log(`[AI Integration] No image file, skipping AI analysis`);
+        } else {
+          console.log(`[AI Integration] Text too short (${textToAnalyze.length} chars), skipping AI analysis`);
+        }
+      }
+
+      // 4. Flatten keywords from category structure
+      // AI returns: { "disaster": ["fire", "smoke"], "electricity": ["sparking"] }
+      // We need: ["fire", "smoke", "sparking"]
+      const flattenedKeywords = Object.keys(aiData.keywords_detected || {}).flatMap(
+        (category) => aiData.keywords_detected[category] || []
+      );
+
+      // 5. Determine initial status based on AI analysis
+      // If AI says CRITICAL (Real Fire/Flood), Auto-Verify.
+      // Otherwise, mark Pending.
+      let initialStatus = 'Pending';
+      if (aiData.priority === 'CRITICAL') {
+        initialStatus = 'Verified';
+        console.log(`✅ Auto-verifying CRITICAL report`);
+      }
+
+      // 6. Use AI-suggested category if provided (and not 'Other')
+      const finalCategory = (aiData.suggested_category && aiData.suggested_category !== 'Other') 
+        ? aiData.suggested_category 
+        : category.trim();
+
+      // 7. Create Report with AI Data
       const report = new Report({
         userId: req.user._id, // Use _id from User document attached by auth middleware
         title: title.trim(),
-        category: category.trim(),
+        description: description ? description.trim() : '',
+        category: finalCategory,
         imageUrl,
         location: {
           type: 'Point',
           coordinates: [longitude, latitude], // [lng, lat]
         },
-        status: 'Pending',
+        status: initialStatus, // Smart status based on AI analysis
+        aiAnalysis: {
+          priority: aiData.priority,
+          isCritical: aiData.is_critical,
+          sentimentScore: aiData.scores?.sentiment || 0,
+          keywords: flattenedKeywords,
+          processedAt: new Date(),
+        },
       });
 
       await report.save();
@@ -146,9 +258,31 @@ router.put('/:id/vote', auth, async (req, res) => {
     // Recompute score
     report.score = (report.upvotes?.length || 0) - (report.downvotes?.length || 0);
 
-    // Auto-verify rule: if score >= 5, mark Verified (do not downgrade other statuses)
-    if (report.score >= 5 && report.status === 'Pending') {
-      report.status = 'Verified';
+    // SMART STATUS UPDATE (Civic Jury Correction Logic)
+    
+    // CASE A: Community Trusts it (Score >= 5)
+    // Set status to Verified if currently Pending
+    if (report.score >= 5) {
+      if (report.status === 'Pending') {
+        report.status = 'Verified';
+        console.log(`✅ Community verified report (score: ${report.score})`);
+      } else if (report.status === 'Rejected') {
+        // Can override rejection with strong community support
+        report.status = 'Verified';
+        console.log(`✅ Community overrode rejection (score: ${report.score})`);
+      }
+    } 
+    // CASE B: Community Rejects it (Score <= -3)
+    // Mark as Rejected (Spam/Fake) - even if AI verified it
+    else if (report.score <= -3) {
+      report.status = 'Rejected';
+      console.log(`⛔ Community rejected report (score: ${report.score})`);
+    }
+    // CASE C: Revoke Verification (Score < 0 on Verified report)
+    // If it WAS Verified (by AI), but score drops below 0, remove the verified badge
+    else if (report.status === 'Verified' && report.score < 0) {
+      report.status = 'Pending';
+      console.log(`⚠️ Verification revoked by community (score: ${report.score})`);
     }
 
     await report.save();
@@ -220,6 +354,7 @@ router.get('/nearby', auth, async (req, res) => {
           $maxDistance: 2000, // 2km radius in meters
         },
       },
+      status: { $ne: 'Rejected' }, // Exclude rejected reports from nearby results
     }).populate('userId', 'name phoneNumber').lean();
 
     console.log(`[Nearby Reports] Found ${reports.length} report(s) within 2km`);
