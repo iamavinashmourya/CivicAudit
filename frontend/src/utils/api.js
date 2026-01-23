@@ -71,4 +71,45 @@ export const profileAPI = {
   },
 };
 
+// Reports API functions
+export const reportsAPI = {
+  // Create a new report
+  createReport: async (formData) => {
+    const token = getToken();
+    const response = await axios.post(`${API_URL}/reports`, formData, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  // Get nearby reports
+  getNearbyReports: async (lat, lng) => {
+    const response = await api.get('/reports/nearby', {
+      params: { lat, lng },
+    });
+    return response.data;
+  },
+
+  // Get user's reports
+  getMyReports: async () => {
+    const response = await api.get('/reports/me');
+    return response.data;
+  },
+
+  // Vote on a report (voteType: 'up' | 'down')
+  vote: async (reportId, voteType) => {
+    const response = await api.put(`/reports/${reportId}/vote`, { type: voteType });
+    return response.data;
+  },
+  
+  // Get a single report by ID (if needed in future)
+  getReportById: async (reportId) => {
+    const response = await api.get(`/reports/${reportId}`);
+    return response.data;
+  },
+};
+
 export default api;

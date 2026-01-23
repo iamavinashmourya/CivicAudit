@@ -1,11 +1,10 @@
 import { useEffect, useState, useRef } from 'react'
-import { X, Camera, MapPin, RefreshCw, Loader2 } from 'lucide-react'
+import { X, Camera, MapPin, RefreshCw, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { reportsAPI } from '../utils/api'
 
 /**
  * Enhanced modal for creating a report with camera capture and location fetching.
- * NOTE: This component is FRONTEND-ONLY for now.
- * - It does NOT call any backend APIs yet.
- * - Later we will connect it to POST /api/reports using FormData.
+ * Connected to backend API for real report submission.
  */
 function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
   const [selectedImage, setSelectedImage] = useState(null)
@@ -15,6 +14,15 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
   const [isFetchingLocation, setIsFetchingLocation] = useState(false)
   const [isFetchingPlaceName, setIsFetchingPlaceName] = useState(false)
   const [locationError, setLocationError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  
+  // Form fields
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [category, setCategory] = useState('')
+  
   const fileInputRef = useRef(null)
   const hasFetchedLocationRef = useRef(false)
 
@@ -56,6 +64,11 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
       setImagePreview(null)
       setLocationError('')
       setPlaceName('')
+      setTitle('')
+      setDescription('')
+      setCategory('')
+      setSubmitError('')
+      setSubmitSuccess(false)
       hasFetchedLocationRef.current = false
     }
   }, [isOpen])
@@ -146,13 +159,111 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
   const handleImageChange = (e) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setSubmitError('Please select a valid image file')
+        return
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setSubmitError('Image size must be less than 5MB')
+        return
+      }
+      
       setSelectedImage(file)
+      setSubmitError('')
       // Create preview
       const reader = new FileReader()
       reader.onloadend = () => {
         setImagePreview(reader.result)
       }
       reader.readAsDataURL(file)
+    }
+  }
+  
+  // Force camera capture only (no gallery)
+  const handleCameraClick = async () => {
+    // Check if getUserMedia is available (better camera-only experience)
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        // Request camera access
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' } // Use back camera on mobile
+        })
+        
+        // Create a video element to capture from
+        const video = document.createElement('video')
+        video.srcObject = stream
+        video.autoplay = true
+        video.playsInline = true
+        
+        // Create a canvas to capture the frame
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        
+        // Create a modal for camera preview
+        const cameraModal = document.createElement('div')
+        cameraModal.className = 'fixed inset-0 z-[1200] bg-black flex flex-col items-center justify-center'
+        cameraModal.innerHTML = `
+          <div class="w-full max-w-2xl p-4">
+            <video id="camera-preview" class="w-full rounded-lg" autoplay playsinline></video>
+            <div class="flex gap-4 mt-4 justify-center">
+              <button id="capture-btn" class="px-6 py-3 bg-green-500 text-white rounded-lg font-semibold">
+                Capture Photo
+              </button>
+              <button id="cancel-camera-btn" class="px-6 py-3 bg-red-500 text-white rounded-lg font-semibold">
+                Cancel
+              </button>
+            </div>
+          </div>
+        `
+        document.body.appendChild(cameraModal)
+        
+        const previewVideo = cameraModal.querySelector('#camera-preview')
+        previewVideo.srcObject = stream
+        
+        // Set canvas size to match video
+        previewVideo.addEventListener('loadedmetadata', () => {
+          canvas.width = previewVideo.videoWidth
+          canvas.height = previewVideo.videoHeight
+        })
+        
+        // Capture button
+        cameraModal.querySelector('#capture-btn').addEventListener('click', () => {
+          ctx.drawImage(previewVideo, 0, 0)
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' })
+              setSelectedImage(file)
+              const reader = new FileReader()
+              reader.onloadend = () => {
+                setImagePreview(reader.result)
+              }
+              reader.readAsDataURL(file)
+            }
+            // Stop all tracks
+            stream.getTracks().forEach(track => track.stop())
+            document.body.removeChild(cameraModal)
+          }, 'image/jpeg', 0.9)
+        })
+        
+        // Cancel button
+        cameraModal.querySelector('#cancel-camera-btn').addEventListener('click', () => {
+          stream.getTracks().forEach(track => track.stop())
+          document.body.removeChild(cameraModal)
+        })
+        
+      } catch (error) {
+        console.error('Camera access error:', error)
+        // Fallback to file input with capture attribute
+        // On mobile, this will still open camera
+        fileInputRef.current?.click()
+      }
+    } else {
+      // Fallback: Use file input with capture attribute
+      // On mobile devices, this will open camera directly
+      fileInputRef.current?.click()
     }
   }
 
@@ -171,10 +282,82 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
 
   if (!isOpen) return null
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    // In this phase we only show the UI.
-    // Actual submission to backend will be wired later.
+    setSubmitError('')
+    setSubmitSuccess(false)
+    
+    // Validation
+    if (!selectedImage) {
+      setSubmitError('Please capture a photo')
+      return
+    }
+    
+    if (!title.trim()) {
+      setSubmitError('Please enter a title')
+      return
+    }
+    
+    if (!category) {
+      setSubmitError('Please select a category')
+      return
+    }
+    
+    if (!currentLocation || !currentLocation.lat || !currentLocation.lng) {
+      setSubmitError('Please wait for location to be fetched')
+      return
+    }
+    
+    setIsSubmitting(true)
+    
+    try {
+      // Create FormData
+      const formData = new FormData()
+      formData.append('image', selectedImage)
+      formData.append('title', title.trim())
+      formData.append('description', description.trim())
+      formData.append('category', category)
+      formData.append('lat', currentLocation.lat.toString())
+      formData.append('lng', currentLocation.lng.toString())
+      
+      // Submit to API
+      const response = await reportsAPI.createReport(formData)
+      
+      if (response.success) {
+        setSubmitSuccess(true)
+        // Reset form
+        setSelectedImage(null)
+        setImagePreview(null)
+        setTitle('')
+        setDescription('')
+        setCategory('')
+        
+        // Close modal after 1.5 seconds
+        setTimeout(() => {
+          onClose()
+          // Optionally refresh the page or trigger a callback to refresh reports
+          window.location.reload()
+        }, 1500)
+      } else {
+        setSubmitError(response.message || 'Failed to submit report')
+      }
+    } catch (error) {
+      console.error('Report submission error:', error)
+      
+      // Handle AI gatekeeper rejection
+      if (error.response?.status === 400) {
+        const errorData = error.response.data
+        setSubmitError(
+          errorData.message || errorData.reason || 'Report rejected: Image does not match description'
+        )
+      } else if (error.response?.data?.message) {
+        setSubmitError(error.response.data.message)
+      } else {
+        setSubmitError('Failed to submit report. Please try again.')
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -222,7 +405,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
                     </button>
                     <button
                       type="button"
-                      onClick={handleImageClick}
+                      onClick={handleCameraClick}
                       className="absolute inset-0 bg-black/0 hover:bg-black/5 transition-colors flex items-center justify-center group"
                       aria-label="Change image"
                     >
@@ -238,7 +421,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
               ) : (
                 <>
                   <label
-                    onClick={handleImageClick}
+                    onClick={handleCameraClick}
                     className="flex flex-col items-center justify-center gap-2 sm:gap-3 border-2 border-dashed border-[#3B5CE8]/40 rounded-xl py-8 sm:py-12 md:py-14 cursor-pointer hover:border-[#3B5CE8] hover:bg-[#3B5CE8]/5 transition-all duration-200 bg-gray-50"
                   >
                     <div className="flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-[#3B5CE8]/10">
@@ -246,7 +429,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
                     </div>
                     <div className="text-center">
                       <p className="text-sm sm:text-base font-medium text-gray-700">Tap to open camera</p>
-                      <p className="text-xs sm:text-sm text-gray-500 mt-1">Capture a photo directly from camera</p>
+                      <p className="text-xs sm:text-sm text-gray-500 mt-1">Camera only - Gallery not allowed</p>
                     </div>
                   </label>
                   <input
@@ -256,6 +439,14 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
                     capture="environment"
                     onChange={handleImageChange}
                     className="hidden"
+                    // Prevent file selection dialog on desktop (force camera)
+                    onClick={(e) => {
+                      // On desktop, show a message if they try to browse files
+                      if (window.innerWidth > 768) {
+                        // Still allow but warn - mobile will use camera
+                        console.log('Please use camera to capture photo')
+                      }
+                    }}
                   />
                 </>
               )}
@@ -271,8 +462,9 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
               </label>
               <select
                 id="category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
                 className="block w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none transition bg-white text-gray-900 font-medium"
-                defaultValue=""
               >
                 <option value="" disabled>
                   Select a category
@@ -281,6 +473,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
                 <option value="Water">💧 Water</option>
                 <option value="Garbage">🗑️ Garbage</option>
                 <option value="Electricity">⚡ Electricity</option>
+                <option value="Other">📋 Other</option>
               </select>
             </div>
 
@@ -292,6 +485,8 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
               <input
                 id="title"
                 type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
                 className="block w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3B5CE8] focus:border-[#3B5CE8] outline-none transition"
                 placeholder="e.g., Broken streetlight on Main Street"
               />
@@ -305,6 +500,8 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
               <textarea
                 id="description"
                 rows={4}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 className="block w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3B5CE8] focus:border-[#3B5CE8] outline-none transition resize-none"
                 placeholder="Add more details to help identify the issue and its exact location..."
               />
@@ -364,27 +561,56 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
               </div>
             </div>
 
+            {/* Error Message */}
+            {submitError && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700 flex-1">{submitError}</p>
+              </div>
+            )}
+
+            {/* Success Message */}
+            {submitSuccess && (
+              <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+                <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-green-800">Report submitted successfully!</p>
+                  <p className="text-xs text-green-700 mt-1">Your report is being processed...</p>
+                </div>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200">
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 sm:py-3.5 rounded-xl font-semibold transition-colors text-sm sm:text-base"
+                disabled={isSubmitting}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400 text-gray-700 py-3 sm:py-3.5 rounded-xl font-semibold transition-colors text-sm sm:text-base"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="flex-1 bg-gradient-to-r from-[#3B5CE8] to-[#14B8A6] hover:from-[#3149ba] hover:to-[#0d9488] text-white py-3 sm:py-3.5 rounded-xl font-semibold shadow-lg transition-all transform hover:scale-[1.02] text-sm sm:text-base"
+                disabled={isSubmitting || submitSuccess}
+                className="flex-1 bg-gradient-to-r from-[#3B5CE8] to-[#14B8A6] hover:from-[#3149ba] hover:to-[#0d9488] disabled:from-gray-400 disabled:to-gray-400 text-white py-3 sm:py-3.5 rounded-xl font-semibold shadow-lg transition-all transform hover:scale-[1.02] disabled:transform-none text-sm sm:text-base flex items-center justify-center gap-2"
               >
-                Submit Report
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Submitting...</span>
+                  </>
+                ) : submitSuccess ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Submitted!</span>
+                  </>
+                ) : (
+                  'Submit Report'
+                )}
               </button>
             </div>
           </form>
-
-          <p className="mt-3 sm:mt-4 text-[10px] sm:text-xs text-gray-400 text-center">
-            This form is currently frontend-only. Backend integration coming soon.
-          </p>
         </div>
       </div>
     </div>
