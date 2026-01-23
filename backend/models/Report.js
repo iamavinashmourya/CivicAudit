@@ -35,6 +35,21 @@ const reportSchema = new mongoose.Schema({
     enum: ['Pending', 'Verified', 'Resolved'],
     default: 'Pending',
   },
+  // Civic Jury fields
+  // Track who voted to prevent duplicate voting and enable toggling
+  upvotes: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    default: [],
+  },
+  downvotes: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    default: [],
+  },
+  // Computed score: upvotes.length - downvotes.length
+  score: {
+    type: Number,
+    default: 0,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
