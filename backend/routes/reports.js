@@ -80,9 +80,9 @@ router.post('/', auth, (req, res, next) => {
 
       const userId = req.user._id || req.userId;
       const reportCategory = category.trim().toLowerCase();
-      console.log(`[Duplicate Check] Checking for existing reports within 500m with category: "${reportCategory}"`);
-      console.log(`[Duplicate Check] Location: [${longitude}, ${latitude}]`);
-      console.log(`[Duplicate Check] Current user: ${userId}`);
+      // console.log(`[Duplicate Check] Checking for existing reports within 500m with category: "${reportCategory}"`);
+      // console.log(`[Duplicate Check] Location: [${longitude}, ${latitude}]`);
+      // console.log(`[Duplicate Check] Current user: ${userId}`);
 
       // Find ALL active reports (by any user) - only Pending and Verified
       // Exclude Resolved (already fixed), Deleted and Rejected reports
@@ -93,7 +93,7 @@ router.post('/', auth, (req, res, next) => {
         category: { $regex: new RegExp(`^${reportCategory}$`, 'i') }, // Case-insensitive category match
       }).lean();
 
-      console.log(`[Duplicate Check] Found ${allReports.length} active reports with category "${reportCategory}" (Pending or Verified)`);
+      // console.log(`[Duplicate Check] Found ${allReports.length} active reports with category "${reportCategory}" (Pending or Verified)`);
 
       // Calculate distance for each report and find if any are within 500m
       let existingReport = null;
@@ -118,11 +118,11 @@ router.post('/', auth, (req, res, next) => {
         if (distance <= 500 && distance < closestDistance) {
           existingReport = report;
           closestDistance = distance;
-          console.log(`[Duplicate Check] Found duplicate report within 500m: "${report.title}" (category: ${report.category}) by user ${report.userId} (${Math.round(distance)}m away)`);
+          // console.log(`[Duplicate Check] Found duplicate report within 500m: "${report.title}" (category: ${report.category}) by user ${report.userId} (${Math.round(distance)}m away)`);
         }
       }
 
-      console.log(`[Duplicate Check] Final result:`, existingReport ? `Found duplicate: "${existingReport.title}" (${Math.round(closestDistance)}m)` : 'No duplicate found - can create new report');
+      // console.log(`[Duplicate Check] Final result:`, existingReport ? `Found duplicate: "${existingReport.title}" (${Math.round(closestDistance)}m)` : 'No duplicate found - can create new report');
 
       if (existingReport) {
         // Check if user has already voted on this report
@@ -157,8 +157,8 @@ router.post('/', auth, (req, res, next) => {
       const textToAnalyze = [title, description].filter(Boolean).join('. ').trim();
 
       // Debug logging
-      console.log(`[AI Integration] Text to analyze: "${textToAnalyze.substring(0, 100)}${textToAnalyze.length > 100 ? '...' : ''}"`);
-      console.log(`[AI Integration] Has description: ${!!description}, Has title: ${!!title}`);
+      // console.log(`[AI Integration] Text to analyze: "${textToAnalyze.substring(0, 100)}${textToAnalyze.length > 100 ? '...' : ''}"`);
+      // console.log(`[AI Integration] Has description: ${!!description}, Has title: ${!!title}`);
 
       // 2. Default AI result (fallback if Python service is down)
       let aiData = {
@@ -173,7 +173,7 @@ router.post('/', auth, (req, res, next) => {
       if (textToAnalyze.length > 2 && req.file) {
         try {
           const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:5001';
-          console.log(`[AI Integration] Calling AI service at ${aiServiceUrl}/analyze with image`);
+          // console.log(`[AI Integration] Calling AI service at ${aiServiceUrl}/analyze with image`);
 
           // Prepare FormData with image and text
           const form = new FormData();
@@ -189,14 +189,14 @@ router.post('/', auth, (req, res, next) => {
             }
           );
 
-          console.log(`[AI Integration] AI Response status: ${aiResponse.data.status}`);
-          console.log(`[AI Integration] AI Response data:`, JSON.stringify(aiResponse.data, null, 2));
+          // console.log(`[AI Integration] AI Response status: ${aiResponse.data.status}`);
+          // console.log(`[AI Integration] AI Response data:`, JSON.stringify(aiResponse.data, null, 2));
 
           if (aiResponse.data.status === 'success') {
             aiData = aiResponse.data.analysis;
-            console.log(`🤖 AI Service Success: ${aiData.priority} (is_critical: ${aiData.is_critical})`);
-            console.log(`📊 Verification Score: ${aiData.verification_score || 0}/100`);
-            console.log(`⚠️ Dangerous Content: ${aiData.is_dangerous || false} (Type: ${aiData.danger_type || 'none'})`);
+            // console.log(`🤖 AI Service Success: ${aiData.priority} (is_critical: ${aiData.is_critical})`);
+            // console.log(`📊 Verification Score: ${aiData.verification_score || 0}/100`);
+            // console.log(`⚠️ Dangerous Content: ${aiData.is_dangerous || false} (Type: ${aiData.danger_type || 'none'})`);
           } else {
             console.warn(`[AI Integration] AI service returned non-success status: ${aiResponse.data.status}`);
           }
@@ -293,7 +293,7 @@ router.post('/', auth, (req, res, next) => {
 
       // Send notifications to nearby users (async, don't wait)
       notifyNearbyUsers(report).catch(err => {
-        console.error('[Report Creation] Notification error (non-blocking):', err);
+        // console.error('[Report Creation] Notification error (non-blocking):', err);
       });
 
       return res.status(201).json({
