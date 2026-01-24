@@ -22,9 +22,40 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Log API calls in development
+    if (import.meta.env.DEV) {
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, {
+        baseURL: config.baseURL,
+        params: config.params
+      });
+    }
     return config;
   },
   (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  (error) => {
+    // Log API errors
+    if (error.response) {
+      console.error('[API] Error response:', {
+        status: error.response.status,
+        data: error.response.data,
+        url: error.config?.url
+      });
+    } else if (error.request) {
+      console.error('[API] No response received:', {
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        message: 'Network error - check if backend is running and CORS is configured'
+      });
+    }
     return Promise.reject(error);
   }
 );

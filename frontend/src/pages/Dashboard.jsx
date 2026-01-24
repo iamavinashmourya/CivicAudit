@@ -105,6 +105,10 @@ function Dashboard() {
       setFetchError('')
 
       try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
+        console.log('[Dashboard] Fetching nearby reports from:', API_URL)
+        console.log('[Dashboard] Location:', { lat: homeLocation.lat, lng: homeLocation.lng })
+        
         const response = await reportsAPI.getNearbyReports(homeLocation.lat, homeLocation.lng)
 
         if (response.success && response.reports) {
@@ -145,12 +149,43 @@ function Dashboard() {
           // Filter out Pending reports from map display
           const filteredReports = transformedReports.filter(report => report.status !== 'Pending')
           setReports(filteredReports)
+          console.log('[Dashboard] Successfully loaded', filteredReports.length, 'reports')
         } else {
-          setFetchError(response.message || 'Failed to fetch nearby reports')
+          const errorMsg = response.message || 'Failed to fetch nearby reports'
+          console.error('[Dashboard] API returned error:', errorMsg)
+          setFetchError(errorMsg)
         }
       } catch (error) {
-        console.error('Error fetching nearby reports:', error)
-        setFetchError('Failed to load nearby reports. Please try again.')
+        console.error('[Dashboard] Error fetching nearby reports:', error)
+        console.error('[Dashboard] Error details:', {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+          apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
+        })
+        
+        // Provide more helpful error messages
+        let errorMessage = 'Failed to load nearby reports. '
+        if (error.response) {
+          // Server responded with error
+          if (error.response.status === 401) {
+            errorMessage += 'Authentication failed. Please login again.'
+          } else if (error.response.status === 404) {
+            errorMessage += 'API endpoint not found. Check backend configuration.'
+          } else if (error.response.data?.message) {
+            errorMessage += error.response.data.message
+          } else {
+            errorMessage += `Server error (${error.response.status})`
+          }
+        } else if (error.request) {
+          // Request was made but no response received
+          errorMessage += 'Cannot connect to backend. Check if backend is running and VITE_API_URL is set correctly.'
+        } else {
+          // Something else happened
+          errorMessage += error.message || 'Unknown error occurred.'
+        }
+        
+        setFetchError(errorMessage)
       } finally {
         setIsFetchingReports(false)
       }
