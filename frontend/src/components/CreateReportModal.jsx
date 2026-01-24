@@ -19,12 +19,12 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
   const [submitError, setSubmitError] = useState('')
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [duplicateReport, setDuplicateReport] = useState(null) // Store duplicate report if found
-  
+
   // Form fields
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
-  
+
   const fileInputRef = useRef(null)
   const hasFetchedLocationRef = useRef(false)
 
@@ -83,12 +83,12 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
       )
       const data = await response.json()
-      
+
       if (data && data.display_name) {
         // Extract a shorter, more readable address
         const address = data.address || {}
         let name = ''
-        
+
         // Try to build a readable address
         if (address.road || address.street) {
           name = address.road || address.street
@@ -110,7 +110,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
           // Fallback to display_name but truncate if too long
           name = data.display_name.split(',')[0] + ', ' + data.display_name.split(',')[1]
         }
-        
+
         setPlaceName(name || data.display_name)
       } else {
         setPlaceName('Location identified')
@@ -166,13 +166,13 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
         setSubmitError('Please select a valid image file')
         return
       }
-      
+
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         setSubmitError('Image size must be less than 5MB')
         return
       }
-      
+
       setSelectedImage(file)
       setSubmitError('')
       // Create preview
@@ -183,27 +183,36 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
       reader.readAsDataURL(file)
     }
   }
-  
+
   // Force camera capture only (no gallery)
   const handleCameraClick = async () => {
     // Check if getUserMedia is available (better camera-only experience)
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
+        // Determine constraints based on device type
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+
+        const constraints = {
+          video: {
+            facingMode: isMobile ? 'environment' : 'user', // Back camera on mobile, front on desktop
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        }
+
         // Request camera access
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } // Use back camera on mobile
-        })
-        
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
         // Create a video element to capture from
         const video = document.createElement('video')
         video.srcObject = stream
         video.autoplay = true
         video.playsInline = true
-        
+
         // Create a canvas to capture the frame
         const canvas = document.createElement('canvas')
         const ctx = canvas.getContext('2d')
-        
+
         // Create a modal for camera preview
         const cameraModal = document.createElement('div')
         cameraModal.className = 'fixed inset-0 z-[1200] bg-black flex flex-col items-center justify-center'
@@ -211,26 +220,26 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
           <div class="w-full max-w-2xl p-4">
             <video id="camera-preview" class="w-full rounded-lg" autoplay playsinline></video>
             <div class="flex gap-4 mt-4 justify-center">
-              <button id="capture-btn" class="px-6 py-3 bg-green-500 text-white rounded-lg font-semibold">
+              <button id="capture-btn" class="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold transition-colors">
                 Capture Photo
               </button>
-              <button id="cancel-camera-btn" class="px-6 py-3 bg-red-500 text-white rounded-lg font-semibold">
+              <button id="cancel-camera-btn" class="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold transition-colors">
                 Cancel
               </button>
             </div>
           </div>
         `
         document.body.appendChild(cameraModal)
-        
+
         const previewVideo = cameraModal.querySelector('#camera-preview')
         previewVideo.srcObject = stream
-        
+
         // Set canvas size to match video
         previewVideo.addEventListener('loadedmetadata', () => {
           canvas.width = previewVideo.videoWidth
           canvas.height = previewVideo.videoHeight
         })
-        
+
         // Capture button
         cameraModal.querySelector('#capture-btn').addEventListener('click', () => {
           ctx.drawImage(previewVideo, 0, 0)
@@ -249,23 +258,44 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
             document.body.removeChild(cameraModal)
           }, 'image/jpeg', 0.9)
         })
-        
+
         // Cancel button
         cameraModal.querySelector('#cancel-camera-btn').addEventListener('click', () => {
           stream.getTracks().forEach(track => track.stop())
           document.body.removeChild(cameraModal)
         })
-        
+
       } catch (error) {
         console.error('Camera access error:', error)
-        // Fallback to file input with capture attribute
-        // On mobile, this will still open camera
-        fileInputRef.current?.click()
+
+        // Show user-friendly error message
+        let errorMessage = 'Unable to access camera. '
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+          errorMessage += 'Please allow camera access in your browser settings.'
+        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+          errorMessage += 'No camera found on this device.'
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+          errorMessage += 'Camera is already in use by another application.'
+        } else {
+          errorMessage += 'Please try again or use the file upload option.'
+        }
+
+        setSubmitError(errorMessage)
+
+        // On mobile, fallback to file input with capture attribute
+        // On desktop, allow file selection as last resort
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+          fileInputRef.current?.click()
+        }
       }
     } else {
-      // Fallback: Use file input with capture attribute
-      // On mobile devices, this will open camera directly
-      fileInputRef.current?.click()
+      // getUserMedia not supported
+      setSubmitError('Camera API not supported in this browser. Please use a modern browser like Chrome, Firefox, or Safari.')
+
+      // On mobile devices, fallback to file input with capture attribute
+      if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+        fileInputRef.current?.click()
+      }
     }
   }
 
@@ -288,30 +318,30 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
     e.preventDefault()
     setSubmitError('')
     setSubmitSuccess(false)
-    
+
     // Validation
     if (!selectedImage) {
       setSubmitError('Please capture a photo')
       return
     }
-    
+
     if (!title.trim()) {
       setSubmitError('Please enter a title')
       return
     }
-    
+
     if (!category) {
       setSubmitError('Please select a category')
       return
     }
-    
+
     if (!currentLocation || !currentLocation.lat || !currentLocation.lng) {
       setSubmitError('Please wait for location to be fetched')
       return
     }
-    
+
     setIsSubmitting(true)
-    
+
     try {
       // Create FormData
       const formData = new FormData()
@@ -321,10 +351,10 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
       formData.append('category', category)
       formData.append('lat', currentLocation.lat.toString())
       formData.append('lng', currentLocation.lng.toString())
-      
+
       // Submit to API
       const response = await reportsAPI.createReport(formData)
-      
+
       if (response.success) {
         // Check if this is a duplicate report
         if (response.isDuplicate && response.report) {
@@ -332,7 +362,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
           const coordinates = response.report.location?.coordinates || []
           const lng = coordinates[0]
           const lat = coordinates[1]
-          
+
           // Build full image URL
           const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
           const STATIC_BASE_URL = API_BASE_URL.replace(/\/api$/, '') || 'http://localhost:5002'
@@ -379,7 +409,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
           setTitle('')
           setDescription('')
           setCategory('')
-          
+
           // Close modal after 1.5 seconds
           setTimeout(() => {
             onClose()
@@ -392,7 +422,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
       }
     } catch (error) {
       console.error('Report submission error:', error)
-      
+
       // Handle AI gatekeeper rejection
       if (error.response?.status === 400) {
         const errorData = error.response.data
@@ -469,33 +499,48 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
                 </div>
               ) : (
                 <>
-                  <label
-                    onClick={handleCameraClick}
-                    className="flex flex-col items-center justify-center gap-2 sm:gap-3 border-2 border-dashed border-[#3B5CE8]/40 rounded-xl py-8 sm:py-12 md:py-14 cursor-pointer hover:border-[#3B5CE8] hover:bg-[#3B5CE8]/5 transition-all duration-200 bg-gray-50"
-                  >
-                    <div className="flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-[#3B5CE8]/10">
-                      <Camera className="w-6 h-6 sm:w-8 sm:h-8 text-[#3B5CE8]" />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm sm:text-base font-medium text-gray-700">Tap to open camera</p>
-                      <p className="text-xs sm:text-sm text-gray-500 mt-1">Camera only - Gallery not allowed</p>
-                    </div>
-                  </label>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {/* Camera Capture Button */}
+                    <button
+                      type="button"
+                      onClick={handleCameraClick}
+                      className="flex-1 flex flex-col items-center justify-center gap-2 sm:gap-3 border-2 border-dashed border-[#3B5CE8]/40 rounded-xl py-8 sm:py-10 cursor-pointer hover:border-[#3B5CE8] hover:bg-[#3B5CE8]/5 transition-all duration-200 bg-gray-50"
+                    >
+                      <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#3B5CE8]/10">
+                        <Camera className="w-6 h-6 sm:w-7 sm:h-7 text-[#3B5CE8]" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm sm:text-base font-medium text-gray-700">Capture Photo</p>
+                        <p className="text-xs sm:text-sm text-gray-500 mt-1">Use camera</p>
+                      </div>
+                    </button>
+
+                    {/* Upload File Button - Only show on desktop/laptop */}
+                    {!/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) && (
+                      <button
+                        type="button"
+                        onClick={handleImageClick}
+                        className="flex-1 flex flex-col items-center justify-center gap-2 sm:gap-3 border-2 border-dashed border-[#14B8A6]/40 rounded-xl py-8 sm:py-10 cursor-pointer hover:border-[#14B8A6] hover:bg-[#14B8A6]/5 transition-all duration-200 bg-gray-50"
+                      >
+                        <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#14B8A6]/10">
+                          <svg className="w-6 h-6 sm:w-7 sm:h-7 text-[#14B8A6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-sm sm:text-base font-medium text-gray-700">Upload Photo</p>
+                          <p className="text-xs sm:text-sm text-gray-500 mt-1">Choose from files</p>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept="image/*"
-                    capture="environment"
                     onChange={handleImageChange}
                     className="hidden"
-                    // Prevent file selection dialog on desktop (force camera)
-                    onClick={(e) => {
-                      // On desktop, show a message if they try to browse files
-                      if (window.innerWidth > 768) {
-                        // Still allow but warn - mobile will use camera
-                        console.log('Please use camera to capture photo')
-                      }
-                    }}
                   />
                 </>
               )}
