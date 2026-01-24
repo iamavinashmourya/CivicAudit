@@ -1,267 +1,346 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os
 from dotenv import load_dotenv
-from textblob import TextBlob
-import google.generativeai as genai
-from PIL import Image
+import os
 import io
-import json
 
+# Set environment variable BEFORE importing transformers
+os.environ['TRANSFORMERS_NO_TF'] = '1'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+import cv2
+import numpy as np
+from PIL import Image
+from textblob import TextBlob
+
+import torch
+from ultralytics import YOLO
+from transformers import CLIPProcessor, CLIPModel
+
+# -------------------------------------------------
+# App Setup
+# -------------------------------------------------
 load_dotenv()
 app = Flask(__name__)
 
 cors_origins = os.getenv(
-    'CORS_ORIGINS',
-    'http://localhost:3000,http://localhost:5173,http://localhost:5002'
-).split(',')
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:5173,http://localhost:5002"
+).split(",")
 CORS(app, origins=cors_origins)
 
-# SETUP GEMINI
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    model = None
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# --------------------------------
-# UPDATED KEYWORDS DICTIONARY
-# --------------------------------
-CIVIC_KEYWORDS = {
-    # 1. CRITICAL PRIORITY
-    "electricity": {
-        "electric": 0.9, "wire": 1.0, "exposed": 0.9, "short circuit": 1.0, 
-        "sparking": 1.0, "shock": 1.0, "current": 0.8, "transformer": 0.8
-    },
-    "disaster": {
-        "fire": 1.0, "gas leak": 1.0, "explosion": 1.0, "smoke": 0.8, 
-        "flood": 0.9, "earthquake": 1.0, "collapse": 0.9
-    },
+# -------------------------------------------------
+# Load Models
+# -------------------------------------------------
+print(f"Loading models on device: {device}")
+yolo_model = YOLO("yolov8n.pt")
+print("✓ YOLO model loaded")
 
-    # 2. HIGH PRIORITY
-    "road_infra": {
-        "pothole": 0.8, "road": 0.6, "asphalt": 0.5, "bridge": 0.9, 
-        "traffic": 0.6, "divider": 0.5, "accident": 0.8
-    },
+clip_processor = CLIPProcessor.from_pretrained(
+    "openai/clip-vit-base-patch32"
+)
+print("✓ CLIP processor loaded")
 
-    # 3. MEDIUM PRIORITY
-    "water_sanitation": {
-        "leakage": 0.7, "pipe": 0.6, "water": 0.5, "drain": 0.7, 
-        "sewage": 0.8, "drinking": 0.7, "supply": 0.6
-    },
-    "garbage": {
-        "garbage": 0.7, "trash": 0.7, "waste": 0.6, "dustbin": 0.6, 
-        "dump": 0.7, "smell": 0.5, "plastic": 0.5, "cleaning": 0.5
-    },
+clip_model = CLIPModel.from_pretrained(
+    "openai/clip-vit-base-patch32"
+).to(device)
+print("✓ CLIP model loaded")
 
-    # 4. LOW PRIORITY (Nuisance)
-    "civic_nuisance": {
-        "streetlight": 0.5, "street light": 0.5, "lamp": 0.4, "bench": 0.3, 
-        "park": 0.3, "painting": 0.2, "sign": 0.3, "dark": 0.4
-    }
+# -------------------------------------------------
+# YOLO Junk Objects (hard reject if ANY present)
+# -------------------------------------------------
+JUNK_OBJECTS = {
+    "cat", "dog", "cow", "horse", "sheep",
+    "bird", "chair", "bed", "sofa",
+    "tv", "laptop", "phone", "food", "pizza",
+    "cake", "bottle", "cup", "fork", "knife",
+    "spoon", "bowl"
 }
 
-# --------------------------------
-# Helper Functions
-# --------------------------------
-def compute_category_severity(text):
-    text = text.lower()
-    category_scores = {}
-    matched_keywords = {}
+# -------------------------------------------------
+# Civic Keywords (TEXT VALIDATION)
+# -------------------------------------------------
+CIVIC_KEYWORDS = [
+    "road", "street", "footpath", "pothole", "crack", "accident",
+    "garbage", "trash", "waste", "dump", "litter",
+    "water", "leak", "sewage", "flood", "drainage",
+    "electric", "wire", "streetlight", "transformer", "pole",
+    "fire", "smoke", "explosion", "factory",
+    "bridge", "sidewalk", "pavement", "manhole", "gutter"
+]
 
-    for category, keywords in CIVIC_KEYWORDS.items():
-        score = 0.0
-        hits = []
-        for word, weight in keywords.items():
-            if word in text:
-                score += weight
-                hits.append(word)
-        if hits:
-            category_scores[category] = min(score, 1.0)
-            matched_keywords[category] = hits
+# -------------------------------------------------
+# CLIP Civic Relevance Prompts
+# -------------------------------------------------
+CIVIC_CLIP_PROMPT = (
+    "road damage, pothole, cracked road, garbage dump, water leakage, "
+    "electric hazard, broken streetlight, fire, smoke, flood, "
+    "public infrastructure problem, civic issue, municipal problem"
+)
 
-    overall_severity = max(category_scores.values(), default=0.0)
-    return overall_severity, category_scores, matched_keywords
+NON_CIVIC_PROMPT = (
+    "person, animal, pet, food, furniture, indoor scene, "
+    "nature scenery, beautiful landscape, selfie, portrait"
+)
 
-def analyze_sentiment(text):
-    blob = TextBlob(text)
-    return blob.sentiment.polarity
+# FIXED THRESHOLDS (more realistic)
+DESCRIPTION_MATCH_THRESHOLD = 0.20  # Image-description alignment
+CIVIC_IMAGE_THRESHOLD = 0.22        # Image must be civic-related
+CIVIC_VS_NONCIVIC_MARGIN = 0.05     # Civic score must exceed non-civic
 
-# --------------------------------
-# NEW PRIORITY LOGIC (Strict Hierarchy)
-# --------------------------------
-def decide_priority(semantic_score, sentiment_polarity, category_scores, text_content):
-    # 1. Identify Top Category
-    if not category_scores:
-        return "LOW"
+# -------------------------------------------------
+# YOLO Detection
+# -------------------------------------------------
+def detected_objects_from_image(cv_image):
+    """Detect objects in image using YOLO"""
+    try:
+        results = yolo_model(cv_image, verbose=False)
+        detected = {
+            yolo_model.names[int(cls)]
+            for cls in results[0].boxes.cls
+        }
+        return detected
+    except Exception as e:
+        print(f"YOLO detection error: {e}")
+        return set()
+
+# -------------------------------------------------
+# FIXED CLIP Similarity Calculation
+# -------------------------------------------------
+def calculate_clip_similarity(image, text):
+    """
+    CORRECTED: Calculate cosine similarity between image and text
+    Returns value in range [-1, 1], typically [0, 1] for similar content
+    """
+    try:
+        inputs = clip_processor(
+            text=[text],
+            images=image,
+            return_tensors="pt",
+            padding=True
+        ).to(device)
+        
+        with torch.no_grad():
+            # Get normalized features
+            image_features = clip_model.get_image_features(
+                pixel_values=inputs['pixel_values']
+            )
+            text_features = clip_model.get_text_features(
+                input_ids=inputs['input_ids'],
+                attention_mask=inputs['attention_mask']
+            )
+            
+            # Normalize features
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            
+            # Cosine similarity
+            similarity = (image_features @ text_features.T).squeeze().item()
+        
+        return similarity
+    except Exception as e:
+        print(f"CLIP similarity error: {e}")
+        return 0.0
+
+# -------------------------------------------------
+# FINAL IMAGE + TEXT VALIDATION PIPELINE
+# -------------------------------------------------
+def validate_image_and_text(image_bytes, text):
+    """
+    ENFORCED ORDER (FIXED):
+    1. Image ↔ description match (CORRECTED CLIP)
+    2. Image is civic-related (CORRECTED CLIP with contrast)
+    3. Description contains civic keywords
+    """
     
-    top_category = max(category_scores, key=category_scores.get)
-    text_lower = text_content.lower()
+    # Decode image
+    np_img = np.frombuffer(image_bytes, np.uint8)
+    cv_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+    
+    if cv_image is None:
+        return False, "Invalid image file", {}
+    
+    text = text.strip()
+    if not text:
+        return False, "Description cannot be empty", {}
+    
+    text_lower = text.lower()
+    
+    # -------------------------------------------------
+    # STEP 0: YOLO – reject if ANY junk objects detected
+    # -------------------------------------------------
+    detected = detected_objects_from_image(cv_image)
+    junk_found = detected & JUNK_OBJECTS
+    
+    if junk_found:
+        return False, (
+            f"Image contains non-civic objects: {', '.join(junk_found)}. "
+            "Please upload an image related to a civic issue."
+        ), {"detected_objects": list(detected)}
+    
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    
+    # -------------------------------------------------
+    # STEP 1: Image ↔ Description match (FIXED CLIP)
+    # -------------------------------------------------
+    desc_similarity = calculate_clip_similarity(image, text)
+    
+    if desc_similarity < DESCRIPTION_MATCH_THRESHOLD:
+        return False, (
+            f"Image and description do not match "
+            f"(similarity: {round(desc_similarity, 3)})"
+        ), {
+            "description_match_score": round(desc_similarity, 3),
+            "threshold": DESCRIPTION_MATCH_THRESHOLD
+        }
+    
+    # -------------------------------------------------
+    # STEP 2: Image must be CIVIC (FIXED CLIP with contrast)
+    # -------------------------------------------------
+    civic_similarity = calculate_clip_similarity(image, CIVIC_CLIP_PROMPT)
+    noncivic_similarity = calculate_clip_similarity(image, NON_CIVIC_PROMPT)
+    
+    # Image must score higher on civic than non-civic
+    if civic_similarity < CIVIC_IMAGE_THRESHOLD:
+        return False, (
+            f"Image does not appear to be civic-related "
+            f"(civic score: {round(civic_similarity, 3)})"
+        ), {
+            "civic_score": round(civic_similarity, 3),
+            "non_civic_score": round(noncivic_similarity, 3),
+            "threshold": CIVIC_IMAGE_THRESHOLD
+        }
+    
+    if civic_similarity < noncivic_similarity + CIVIC_VS_NONCIVIC_MARGIN:
+        return False, (
+            f"Image appears more non-civic than civic "
+            f"(civic: {round(civic_similarity, 3)}, "
+            f"non-civic: {round(noncivic_similarity, 3)})"
+        ), {
+            "civic_score": round(civic_similarity, 3),
+            "non_civic_score": round(noncivic_similarity, 3)
+        }
+    
+    # -------------------------------------------------
+    # STEP 3: Description must contain civic keywords
+    # -------------------------------------------------
+    found_keywords = [k for k in CIVIC_KEYWORDS if k in text_lower]
+    
+    if not found_keywords:
+        return False, (
+            "Description does not contain civic-related keywords. "
+            f"Please mention specific issues like: {', '.join(CIVIC_KEYWORDS[:8])}, etc."
+        ), {"civic_keywords_found": []}
+    
+    return True, "Validated civic issue", {
+        "description_match_score": round(desc_similarity, 3),
+        "civic_score": round(civic_similarity, 3),
+        "non_civic_score": round(noncivic_similarity, 3),
+        "keywords_found": found_keywords,
+        "detected_objects": list(detected) if detected else []
+    }
 
-    # 2. RULE 1: CRITICAL (Electric, Fire)
-    # Exception: "Streetlight" might trigger "Electric" keywords if not careful, 
-    # so we explicitly check for nuisance keywords to downgrade.
-    if top_category in ["electricity", "disaster"]:
-        if "streetlight" in text_lower or "street light" in text_lower:
-            return "LOW" # Override
+# -------------------------------------------------
+# Priority Logic (text-based)
+# -------------------------------------------------
+def decide_priority(text):
+    """Determine priority based on keywords in text"""
+    text = text.lower()
+    if any(w in text for w in ["fire", "smoke", "explosion", "electric", "spark", "gas"]):
         return "CRITICAL"
-
-    # 3. RULE 2: HIGH (Roads, Streets)
-    if top_category == "road_infra":
+    if any(w in text for w in ["accident", "pothole", "flood", "crack", "leak"]):
         return "HIGH"
-
-    # 4. RULE 3: MEDIUM (Garbage, Water)
-    if top_category in ["garbage", "water_sanitation"]:
+    if any(w in text for w in ["garbage", "waste", "sewage", "litter"]):
         return "MEDIUM"
-
-    # 5. RULE 4: LOW (Streetlights, Nuisance)
-    if top_category == "civic_nuisance":
-        return "LOW"
-
-    # Fallback based on sentiment if category is unclear
-    urgency = abs(sentiment_polarity)
-    if urgency > 0.6: return "MEDIUM"
     return "LOW"
 
-def verify_image_alignment(image_bytes, text_description):
-    if not model: 
-        print("⚠️ Gemini model not initialized (no API key)")
-        return True, "AI Offline"
+# -------------------------------------------------
+# Health Check
+# -------------------------------------------------
+@app.route("/", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "success",
+        "message": "CivicAudit AI (FIXED 3-STEP VALIDATION) running",
+        "device": device,
+        "models_loaded": {
+            "yolo": "yolov8n.pt",
+            "clip": "openai/clip-vit-base-patch32"
+        }
+    })
+
+# -------------------------------------------------
+# Analyze Endpoint
+# -------------------------------------------------
+@app.route("/api/analyze", methods=["POST"])
+@app.route("/analyze", methods=["POST"])
+def analyze():
     try:
-        img = Image.open(io.BytesIO(image_bytes))
-        img_size = img.size
-        print(f"🔍 [Gatekeeper] Analyzing image ({img_size[0]}x{img_size[1]}px) with text: \"{text_description[:50]}...\"")
-        
-        # Extract key terms from description for stricter checking
-        description_lower = text_description.lower()
-        has_fire = any(word in description_lower for word in ['fire', 'flame', 'burning', 'smoke', 'blaze'])
-        has_cat = any(word in description_lower for word in ['cat', 'kitten', 'feline'])
-        has_disaster = any(word in description_lower for word in ['disaster', 'emergency', 'danger', 'explosion'])
-        
-        prompt = f"""
-        You are a STRICT Civic Validator. Your job is to REJECT fake reports where the image doesn't match the text.
-        
-        User Description: "{text_description}"
-        
-        CRITICAL RULES:
-        1. If description mentions "fire", "smoke", "disaster", "emergency" but the image shows a CAT, ANIMAL, or anything unrelated → return is_match: FALSE
-        2. If description mentions "cat", "animal", "pet" but the image shows FIRE, SMOKE, or disaster → return is_match: FALSE
-        3. ONLY return is_match: TRUE if the image CLEARLY shows what the description describes
-        
-        Examples:
-        - Cat photo + "fire" text → is_match: FALSE (REJECT)
-        - Fire photo + "fire" text → is_match: TRUE (ACCEPT)
-        - Cat photo + "cat" text → is_match: TRUE (ACCEPT)
-        - Random image + "fire" text → is_match: FALSE (REJECT)
-        
-        Be VERY STRICT. When in doubt, REJECT (is_match: false).
-        
-        Return ONLY valid JSON (no markdown, no code blocks, no extra text):
-        {{ "is_match": false, "reason": "Image shows a cat but description mentions fire - mismatch detected" }}
-        """
-        response = model.generate_content([prompt, img])
-        raw_response = response.text
-        print(f"📥 [Gatekeeper] Gemini raw response: {raw_response[:200]}...")
-        
-        clean_text = raw_response.replace("```json", "").replace("```", "").strip()
-        # Remove any leading/trailing whitespace and try to extract JSON
-        if clean_text.startswith('{'):
-            clean_text = clean_text[clean_text.find('{'):]
-        if clean_text.endswith('}'):
-            clean_text = clean_text[:clean_text.rfind('}')+1]
-        
-        result = json.loads(clean_text)
-        is_match = result.get('is_match', False)
-        reason = result.get('reason', 'No reason provided')
-        
-        # Additional safety check: If description has fire/disaster keywords but is_match is true,
-        # we should double-check (this is a fallback)
-        description_lower = text_description.lower()
-        has_fire_keywords = any(word in description_lower for word in ['fire', 'flame', 'burning', 'smoke', 'blaze', 'disaster', 'emergency'])
-        has_animal_keywords = any(word in description_lower for word in ['cat', 'kitten', 'feline', 'dog', 'animal', 'pet'])
-        
-        # If description has fire but we got is_match=true, be suspicious
-        if has_fire_keywords and not has_animal_keywords and is_match:
-            print(f"⚠️ [Gatekeeper] WARNING: Fire keywords detected but is_match=true - double-checking...")
-            # Don't override, but log it for debugging
-        
-        print(f"{'✅' if is_match else '⛔'} [Gatekeeper] Result: is_match={is_match}, reason=\"{reason}\"")
-        return is_match, reason
-    except json.JSONDecodeError as e:
-        print(f"⚠️ [Gatekeeper] JSON parse error: {e}")
-        print(f"   Raw response: {response.text if 'response' in locals() else 'N/A'}")
-        return True, f"JSON parse error: {str(e)}"
-    except Exception as e:
-        print(f"⚠️ [Gatekeeper] Gemini API Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return True, f"Gemini API Error: {str(e)}"
-
-# --------------------------------
-# Main Endpoint
-# --------------------------------
-@app.route('/', methods=['GET'])
-def health_check():
-    return jsonify({ 'status': 'success', 'message': 'CivicAudit AI Service is running' })
-
-@app.route('/analyze', methods=['POST'])
-def analyze_text():
-    try:
-        if request.content_type and request.content_type.startswith('multipart/form-data'):
-            text = request.form.get('text', '').strip()
-            image_file = request.files.get('image')
-        else:
-            data = request.get_json() or {}
-            text = data.get('text', '').strip()
-            image_file = None
-
-        if not text or len(text) < 5:
-             return jsonify({'status': 'error', 'message': 'Description too short.'}), 400
-        if not image_file:
-             return jsonify({'status': 'error', 'message': 'Image required.'}), 400
-
-        # 1. Gatekeeper Verification
-        print(f"\n{'='*60}")
-        print(f"🛡️  GATEKEEPER CHECK")
-        print(f"{'='*60}")
-        img_bytes = image_file.read()
-        image_file.seek(0)
-        is_match, rejection_reason = verify_image_alignment(img_bytes, text)
-        print(f"{'='*60}\n")
-
-        if not is_match:
+        if not request.content_type or not request.content_type.startswith("multipart"):
             return jsonify({
-                'status': 'rejected',
-                'message': 'Report Rejected: Image mismatch.',
-                'reason': rejection_reason,
-                'is_fake': True
+                "status": "error",
+                "message": "multipart/form-data required"
+            }), 415
+        
+        text = request.form.get("text", "").strip()
+        image_file = request.files.get("image")
+        
+        if not image_file:
+            return jsonify({
+                "status": "rejected",
+                "message": "Please upload an image related to a civic problem",
+                "is_fake": True
             }), 400
-
-        # 2. Analysis
-        semantic_score, category_scores, matched_keywords = compute_category_severity(text)
-        sentiment_polarity = analyze_sentiment(text)
         
-        # 3. Apply New Priority Logic
-        priority_level = decide_priority(semantic_score, sentiment_polarity, category_scores, text)
+        image_bytes = image_file.read()
         
-        suggested_category = max(category_scores, key=category_scores.get) if category_scores else "Other"
-
+        # ---- FIXED VALIDATION ----
+        is_valid, reason, debug_info = validate_image_and_text(image_bytes, text)
+        
+        if not is_valid:
+            return jsonify({
+                "status": "rejected",
+                "message": reason,
+                "is_fake": True,
+                "debug": debug_info
+            }), 400
+        
+        # ---- TRIAGE ----
+        priority = decide_priority(text)
+        urgency = abs(TextBlob(text).sentiment.polarity)
+        
         return jsonify({
-            'status': 'success',
-            'analysis': {
-                'priority': priority_level,
-                'is_critical': True if priority_level == "CRITICAL" else False,
-                'is_fake_image': False,
-                'suggested_category': suggested_category,
-                'scores': { 'semantic': semantic_score },
-                'keywords_detected': matched_keywords
+            "status": "success",
+            "analysis": {
+                "priority": priority,
+                "is_critical": priority == "CRITICAL",
+                "urgency": round(urgency, 2),
+                "verification_reason": reason,
+                "validation_details": debug_info
             }
         })
-
+    
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        import traceback
+        print(f"Error in /analyze: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+# -------------------------------------------------
+# Run
+# -------------------------------------------------
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5001))
+    print(f"\n{'='*60}")
+    print(f"🚀 CivicAudit AI Service Starting")
+    print(f"{'='*60}")
+    print(f"Device: {device}")
+    print(f"Port: {port}")
+    print(f"{'='*60}\n")
+    app.run(host="0.0.0.0", port=port, debug=True)
