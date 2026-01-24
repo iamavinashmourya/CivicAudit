@@ -292,7 +292,7 @@ def analyze():
                 "status": "rejected",
                 "message": "Please upload an image related to a civic problem",
                 "is_fake": True
-            }), 400
+            }), 422  # Changed from 400 to 422 (Unprocessable Entity)
         
         image_bytes = image_file.read()
         
@@ -305,7 +305,7 @@ def analyze():
                 "message": reason,
                 "is_fake": True,
                 "debug": debug_info
-            }), 400
+            }), 422  # Changed from 400 to 422 (Unprocessable Entity)
         
         # ---- TRIAGE ----
         priority = decide_priority(text)
