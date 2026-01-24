@@ -502,8 +502,8 @@ router.get('/nearby', auth, async (req, res) => {
 
     const userId = req.user._id;
     
-    // Include user's own reports only if they are Verified
-    // Include other users' reports (Pending, Verified, Resolved) but exclude Rejected and Deleted
+    // Include user's own reports if Verified or Resolution Pending
+    // Include other users' reports (Pending, Verified, Resolution Pending) but exclude Rejected and Deleted
     const reports = await Report.find({
       location: {
         $near: {
@@ -512,12 +512,12 @@ router.get('/nearby', auth, async (req, res) => {
         },
       },
       $or: [
-        // User's own reports: only if Verified
-        { userId: userId, status: 'Verified' },
-        // Other users' reports: Pending, Verified, or Resolved (but not Rejected or Deleted)
+        // User's own reports: Verified or Resolution Pending
+        { userId: userId, status: { $in: ['Verified', 'Resolution Pending'] } },
+        // Other users' reports: Pending, Verified, Resolution Pending (but not Rejected or Deleted)
         { 
           userId: { $ne: userId },
-          status: { $in: ['Pending', 'Verified', 'Resolved'] }
+          status: { $in: ['Pending', 'Verified', 'Resolution Pending'] }
         }
       ],
     }).populate('userId', 'name phoneNumber').lean();
@@ -625,6 +625,181 @@ router.get('/:id', auth, async (req, res) => {
       success: false,
       message: 'Internal server error',
       error: error.message,
+    });
+  }
+});
+
+// POST /api/reports/:id/verify-resolution - User verifies/rejects resolution
+// Body: { "action": "approve" | "reject" }
+router.post('/:id/verify-resolution', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action } = req.body; // 'approve' or 'reject'
+
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid action. Must be "approve" or "reject"'
+      });
+    }
+
+    const report = await Report.findById(id);
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found'
+      });
+    }
+
+    // Check if report is in "Resolution Pending" status
+    if (report.status !== 'Resolution Pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'This report is not pending resolution verification'
+      });
+    }
+
+    const userId = req.user._id;
+    const userIdStr = userId.toString();
+
+    // Initialize resolutionVerification if not exists
+    if (!report.resolutionVerification) {
+      report.resolutionVerification = {
+        requestedAt: new Date(),
+        requestedBy: null,
+        approvals: [],
+        rejections: [],
+        requiredApprovals: 2,
+        closedAt: null
+      };
+    }
+
+    // Check if user already voted
+    const hasApproved = report.resolutionVerification.approvals.some(
+      a => a.userId.toString() === userIdStr
+    );
+    const hasRejected = report.resolutionVerification.rejections.some(
+      r => r.userId.toString() === userIdStr
+    );
+
+    // Prevent duplicate voting - if user already voted, return error
+    if (hasApproved || hasRejected) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already verified or rejected this resolution. You can only vote once.'
+      });
+    }
+
+    if (action === 'approve') {
+      // Add to approvals
+      report.resolutionVerification.approvals.push({
+        userId: userId,
+        approvedAt: new Date()
+      });
+    } else if (action === 'reject') {
+      // Add to rejections
+      report.resolutionVerification.rejections.push({
+        userId: userId,
+        rejectedAt: new Date()
+      });
+    }
+
+    // Check rejection threshold (if 2+ users reject, reset to previous status)
+    const rejectionCount = report.resolutionVerification.rejections.length;
+    const rejectionThreshold = 2;
+    
+    if (rejectionCount >= rejectionThreshold) {
+      // Reset status back to Verified (previous status before Resolution Pending)
+      report.status = 'Verified';
+      report.resolutionVerification = null; // Clear verification data
+      report.resolvedAt = null;
+      
+      // Send notification to admin that resolution was rejected
+      const Notification = require('../models/Notification');
+      try {
+        // Find admin users to notify
+        const User = require('../models/User');
+        const admins = await User.find({ role: 'admin' }).select('_id').lean();
+        
+        const adminNotifications = admins.map(admin => ({
+          userId: admin._id,
+          reportId: report._id,
+          type: 'resolution_rejected',
+          title: 'Resolution Rejected',
+          message: `Report "${report.title}" resolution was rejected by ${rejectionCount} users. Status reset to Verified.`,
+          read: false
+        }));
+        
+        if (adminNotifications.length > 0) {
+          await Notification.insertMany(adminNotifications);
+        }
+      } catch (notifError) {
+        console.error('[Resolution Verification] Error sending rejection notification:', notifError);
+      }
+      
+      await report.save();
+      
+      return res.json({
+        success: true,
+        message: `Resolution rejected by ${rejectionCount} users. Report status reset to Verified.`,
+        report: {
+          id: report._id,
+          status: report.status,
+          resolutionVerification: null
+        }
+      });
+    }
+
+    // Check if we have enough approvals to close
+    const approvalCount = report.resolutionVerification.approvals.length;
+    const requiredApprovals = report.resolutionVerification.requiredApprovals || 2;
+
+    if (approvalCount >= requiredApprovals) {
+      // Close the ticket
+      report.status = 'Closed';
+      report.resolutionVerification.closedAt = new Date();
+      
+      // Send notification to report creator
+      const Notification = require('../models/Notification');
+      try {
+        const notification = new Notification({
+          userId: report.userId,
+          reportId: report._id,
+          type: 'report_closed',
+          title: 'Report Closed',
+          message: `Your report "${report.title}" has been verified as resolved and closed.`,
+          read: false
+        });
+        await notification.save();
+      } catch (notifError) {
+        console.error('[Resolution Verification] Error sending closure notification:', notifError);
+      }
+    }
+
+    await report.save();
+
+    res.json({
+      success: true,
+      message: action === 'approve' 
+        ? `Resolution approved. ${approvalCount}/${requiredApprovals} approvals received.`
+        : 'Resolution rejected.',
+      report: {
+        id: report._id,
+        status: report.status,
+        resolutionVerification: {
+          approvals: report.resolutionVerification.approvals.length,
+          rejections: report.resolutionVerification.rejections.length,
+          requiredApprovals: requiredApprovals,
+          isClosed: report.status === 'Closed'
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Resolution verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
     });
   }
 });

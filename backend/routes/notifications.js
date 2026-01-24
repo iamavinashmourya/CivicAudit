@@ -9,7 +9,8 @@ router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user._id;
     
-    const notifications = await Notification.find({ userId })
+    // Get only unread notifications
+    const notifications = await Notification.find({ userId, read: false })
       .populate('reportId', 'title category status imageUrl')
       .sort({ createdAt: -1 })
       .limit(50)
@@ -18,13 +19,13 @@ router.get('/', auth, async (req, res) => {
     // Format notifications for frontend
     const formattedNotifications = notifications.map(notif => ({
       id: notif._id.toString(),
-      type: notif.type === 'new_report' ? 'info' : notif.type === 'report_verified' ? 'success' : 'alert',
+      type: notif.type === 'new_report' ? 'info' : notif.type === 'report_verified' || notif.type === 'report_closed' ? 'success' : notif.type === 'resolution_verification' ? 'alert' : 'alert',
       title: notif.title,
       message: notif.message,
       time: formatTimeAgo(notif.createdAt),
       read: notif.read,
       reportId: notif.reportId?._id?.toString(),
-      link: notif.reportId ? `/dashboard?reportId=${notif.reportId._id}` : null
+      link: notif.link || (notif.reportId ? `/dashboard?reportId=${notif.reportId._id}` : null)
     }));
 
     const unreadCount = notifications.filter(n => !n.read).length;

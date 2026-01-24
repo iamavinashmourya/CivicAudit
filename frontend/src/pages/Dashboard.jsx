@@ -146,8 +146,10 @@ function Dashboard() {
             }
           })
 
-          // Filter out Pending reports from map display
-          const filteredReports = transformedReports.filter(report => report.status !== 'Pending')
+          // Filter out only Pending reports from map display (show Resolution Pending)
+          const filteredReports = transformedReports.filter(report => 
+            report.status !== 'Pending'
+          )
           setReports(filteredReports)
           console.log('[Dashboard] Successfully loaded', filteredReports.length, 'reports')
         } else {

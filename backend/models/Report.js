@@ -37,12 +37,56 @@ const reportSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Verified', 'Resolved', 'Rejected', 'Deleted'],
+    enum: ['Pending', 'Verified', 'Resolved', 'Resolution Pending', 'Closed', 'Rejected', 'Deleted'],
     default: 'Pending',
   },
   rejectedAt: {
     type: Date,
     default: null,
+  },
+  resolvedAt: {
+    type: Date,
+    default: null,
+  },
+  // Resolution verification fields
+  resolutionVerification: {
+    requestedAt: {
+      type: Date,
+      default: null,
+    },
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    approvals: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      approvedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
+    rejections: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      rejectedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
+    requiredApprovals: {
+      type: Number,
+      default: 2, // Need 2 approvals to close
+    },
+    closedAt: {
+      type: Date,
+      default: null,
+    },
   },
   // AI Analysis fields
   aiAnalysis: {

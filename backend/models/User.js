@@ -3,9 +3,29 @@ const mongoose = require('mongoose');
 const userSchema = new mongoose.Schema({
   phoneNumber: {
     type: String,
-    required: true,
+    required: function() {
+      return this.role === 'citizen';
+    },
     unique: true,
+    sparse: true, // Allow multiple null values
     index: true
+  },
+  email: {
+    type: String,
+    required: function() {
+      return this.role === 'admin';
+    },
+    unique: true,
+    sparse: true, // Allow multiple null values
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: function() {
+      return this.role === 'admin';
+    },
+    select: false // Don't return password in queries by default
   },
   name: {
     type: String,
@@ -89,13 +109,22 @@ userSchema.methods.toJSON = function() {
 userSchema.pre('save', function () {
   this.updatedAt = new Date();
   
-  // Ensure phoneNumber is never null or undefined
-  if (!this.phoneNumber || typeof this.phoneNumber !== 'string' || this.phoneNumber.trim() === '') {
-    throw new Error('phoneNumber must be a non-empty string');
+  // For citizen users, phoneNumber is required
+  // For admin users, email is required instead
+  if (this.role === 'citizen') {
+    if (!this.phoneNumber || typeof this.phoneNumber !== 'string' || this.phoneNumber.trim() === '') {
+      throw new Error('phoneNumber must be a non-empty string for citizen users');
+    }
+    // Normalize phoneNumber
+    this.phoneNumber = this.phoneNumber.trim();
+  } else if (this.role === 'admin') {
+    // For admin users, ensure email is set
+    if (!this.email || typeof this.email !== 'string' || this.email.trim() === '') {
+      throw new Error('email must be a non-empty string for admin users');
+    }
+    // Normalize email
+    this.email = this.email.trim().toLowerCase();
   }
-  
-  // Normalize phoneNumber
-  this.phoneNumber = this.phoneNumber.trim();
 });
 
 module.exports = mongoose.model('User', userSchema);

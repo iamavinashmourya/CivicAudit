@@ -127,7 +127,7 @@ function NearbyReports() {
             }
           })
 
-          // Filter out user's own reports (only show other users' reports)
+          // Filter out only user's own reports (show Resolution Pending reports)
           const currentUserId = getCurrentUserId()
           const filteredReports = transformedReports.filter((report) => {
             if (!currentUserId) return true // If no user ID, show all

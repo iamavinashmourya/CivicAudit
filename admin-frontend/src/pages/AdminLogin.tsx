@@ -1,21 +1,42 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield } from 'lucide-react';
+import { Shield, Loader2 } from 'lucide-react';
+import { adminAPI } from '../utils/api';
 
 export default function AdminLogin() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     const navigate = useNavigate();
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Use mock verification
-        if (email === 'admin@vmc.gov.in' && password === 'admin123') {
-            localStorage.setItem('adminToken', 'dummy-token');
-            navigate('/dashboard');
-        } else {
-            setError('Invalid official credentials');
+        setError('');
+        setIsLoading(true);
+
+        try {
+            const response = await adminAPI.login(email, password);
+            
+            if (response.success && response.token) {
+                // Store token and user data
+                localStorage.setItem('adminToken', response.token);
+                localStorage.setItem('adminUser', JSON.stringify(response.user));
+                
+                // Redirect to dashboard
+                navigate('/dashboard');
+            } else {
+                setError(response.message || 'Login failed. Please try again.');
+            }
+        } catch (err: any) {
+            console.error('Login error:', err);
+            setError(
+                err.response?.data?.message || 
+                err.message || 
+                'Failed to connect to server. Please check your connection.'
+            );
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -76,9 +97,17 @@ export default function AdminLogin() {
 
                     <button
                         type="submit"
-                        className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-md hover:shadow-lg"
+                        disabled={isLoading}
+                        className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Access Dashboard
+                        {isLoading ? (
+                            <span className="flex items-center gap-2">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Logging in...
+                            </span>
+                        ) : (
+                            'Access Dashboard'
+                        )}
                     </button>
                 </form>
             </div>

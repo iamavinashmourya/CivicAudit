@@ -150,6 +150,12 @@ export const reportsAPI = {
     const response = await api.get(`/reports/${reportId}`);
     return response.data;
   },
+
+  // Verify resolution (approve or reject)
+  verifyResolution: async (reportId, action) => {
+    const response = await api.post(`/reports/${reportId}/verify-resolution`, { action });
+    return response.data;
+  },
 };
 
 // Notifications API functions

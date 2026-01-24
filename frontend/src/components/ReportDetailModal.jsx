@@ -37,6 +37,30 @@ function ReportDetailModal({ report, isOpen, onClose }) {
     
     return String(reportUserId) === String(userId)
   }
+
+  // Check if current user has already verified/rejected resolution
+  const checkUserResolutionVote = (reportData) => {
+    const userId = getCurrentUserId()
+    if (!userId || !reportData?.resolutionVerification) {
+      return null
+    }
+
+    const userIdStr = String(userId)
+    
+    // Check if user has approved
+    const hasApproved = reportData.resolutionVerification.approvals?.some(
+      a => String(a.userId) === userIdStr
+    )
+    
+    // Check if user has rejected
+    const hasRejected = reportData.resolutionVerification.rejections?.some(
+      r => String(r.userId) === userIdStr
+    )
+
+    if (hasApproved) return 'approve'
+    if (hasRejected) return 'reject'
+    return null
+  }
   
   // Initialize state from report prop
   const [upvotes, setUpvotes] = useState(report?.upvotes?.length || report?.upvotes || 0)
@@ -48,6 +72,10 @@ function ReportDetailModal({ report, isOpen, onClose }) {
   const [voteError, setVoteError] = useState('')
   const [hasVoted, setHasVoted] = useState(false) // Track if user has already voted
   const [isFetchingReport, setIsFetchingReport] = useState(false)
+  const [isVerifyingResolution, setIsVerifyingResolution] = useState(false)
+  const [resolutionVerification, setResolutionVerification] = useState(null)
+  const [hasVerifiedResolution, setHasVerifiedResolution] = useState(false) // Track if user has already verified/rejected
+  const [userResolutionVote, setUserResolutionVote] = useState(null) // 'approve' or 'reject' or null
   const [reportData, setReportData] = useState(report) // Store fetched report data
   const [isOwnReportState, setIsOwnReportState] = useState(false) // Track if this is user's own report
   const [locationName, setLocationName] = useState('Loading location...')
@@ -260,6 +288,19 @@ function ReportDetailModal({ report, isOpen, onClose }) {
           const vote = checkUserVote(response.report)
           setUserVote(vote)
           setHasVoted(vote !== null)
+          
+          // Set resolution verification data if available
+          if (response.report.resolutionVerification) {
+            setResolutionVerification(response.report.resolutionVerification)
+            
+            // Check if user has already voted
+            const vote = checkUserResolutionVote(response.report)
+            setUserResolutionVote(vote)
+            setHasVerifiedResolution(vote !== null)
+          } else {
+            setHasVerifiedResolution(false)
+            setUserResolutionVote(null)
+          }
           
           // Fetch location name from coordinates
           let lat, lng
@@ -647,6 +688,146 @@ function ReportDetailModal({ report, isOpen, onClose }) {
             </div>
           </div>
 
+          {/* Resolution Verification Section - Show for all users (including own reports) */}
+          {status === 'Resolution Pending' && (
+            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 sm:p-6 mb-6">
+              <div className="flex items-start gap-3 mb-4">
+                <AlertCircle className="w-6 h-6 text-yellow-700 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-base sm:text-lg font-bold text-yellow-900 mb-1">
+                    Verify Issue Resolution
+                  </h3>
+                  <p className="text-sm text-yellow-800">
+                    Admin marked this issue as resolved. Please verify if the problem is actually fixed in your area.
+                  </p>
+                  {resolutionVerification && (
+                    <p className="text-xs text-yellow-700 mt-2">
+                      {resolutionVerification.approvals?.length || 0}/{resolutionVerification.requiredApprovals || 2} approvals needed to close
+                    </p>
+                  )}
+                </div>
+              </div>
+              {hasVerifiedResolution ? (
+                <div className="text-center py-4">
+                  <div className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold ${
+                    userResolutionVote === 'approve' 
+                      ? 'bg-green-50 border-2 border-green-500 text-green-700' 
+                      : 'bg-red-50 border-2 border-red-500 text-red-700'
+                  }`}>
+                    {userResolutionVote === 'approve' ? (
+                      <>
+                        <ThumbsUp className="w-5 h-5 fill-green-700" />
+                        <span>You approved this resolution</span>
+                      </>
+                    ) : (
+                      <>
+                        <ThumbsDown className="w-5 h-5 fill-red-700" />
+                        <span>You rejected this resolution</span>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">You can only verify or reject once</p>
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <button
+                    onClick={async () => {
+                      setIsVerifyingResolution(true)
+                      try {
+                        const reportId = report.id || report._id
+                        const response = await reportsAPI.verifyResolution(reportId, 'approve')
+                        if (response.success) {
+                          setStatus(response.report.status)
+                          setHasVerifiedResolution(true)
+                          setUserResolutionVote('approve')
+                          if (response.report.status === 'Closed') {
+                            alert('Report has been closed after receiving required approvals.')
+                          }
+                          // Refresh report data
+                          const freshResponse = await reportsAPI.getReportById(reportId)
+                          if (freshResponse.success && freshResponse.report) {
+                            setReportData(freshResponse.report)
+                            setStatus(freshResponse.report.status)
+                            if (freshResponse.report.resolutionVerification) {
+                              setResolutionVerification(freshResponse.report.resolutionVerification)
+                              const vote = checkUserResolutionVote(freshResponse.report)
+                              setUserResolutionVote(vote)
+                              setHasVerifiedResolution(vote !== null)
+                            }
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Resolution verification error:', error)
+                        alert(error.response?.data?.message || 'Failed to verify resolution')
+                      } finally {
+                        setIsVerifyingResolution(false)
+                      }
+                    }}
+                    disabled={isVerifyingResolution || hasVerifiedResolution}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isVerifyingResolution ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Approving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ThumbsUp className="w-4 h-4" />
+                        <span>Approve Resolution</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setIsVerifyingResolution(true)
+                      try {
+                        const reportId = report.id || report._id
+                        const response = await reportsAPI.verifyResolution(reportId, 'reject')
+                        if (response.success) {
+                          setHasVerifiedResolution(true)
+                          setUserResolutionVote('reject')
+                          // Refresh report data
+                          const freshResponse = await reportsAPI.getReportById(reportId)
+                          if (freshResponse.success && freshResponse.report) {
+                            setReportData(freshResponse.report)
+                            setStatus(freshResponse.report.status)
+                            if (freshResponse.report.resolutionVerification) {
+                              setResolutionVerification(freshResponse.report.resolutionVerification)
+                              const vote = checkUserResolutionVote(freshResponse.report)
+                              setUserResolutionVote(vote)
+                              setHasVerifiedResolution(vote !== null)
+                            }
+                          }
+                          alert('Resolution rejected. The issue will remain open.')
+                        }
+                      } catch (error) {
+                        console.error('Resolution verification error:', error)
+                        alert(error.response?.data?.message || 'Failed to verify resolution')
+                      } finally {
+                        setIsVerifyingResolution(false)
+                      }
+                    }}
+                    disabled={isVerifyingResolution || hasVerifiedResolution}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isVerifyingResolution ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Rejecting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ThumbsDown className="w-4 h-4" />
+                        <span>Reject Resolution</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {voteError && (
             <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
@@ -654,7 +835,12 @@ function ReportDetailModal({ report, isOpen, onClose }) {
             </div>
           )}
 
-          {hasVoted ? (
+          {/* Hide voting buttons if status is Resolution Pending - show only verify/deny buttons above */}
+          {status === 'Resolution Pending' ? (
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-600 italic">Voting is disabled while resolution is pending verification. Use the verify/deny buttons above.</p>
+            </div>
+          ) : hasVoted ? (
             <div className="text-center py-4">
               <div className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold ${
                 userVote === 'up' 
