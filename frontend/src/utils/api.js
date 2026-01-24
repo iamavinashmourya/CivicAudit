@@ -53,6 +53,11 @@ api.interceptors.response.use(
         baseURL: error.config?.baseURL,
         message: 'Network error - check if backend is running and CORS is configured'
       });
+      
+      // Check if this might be an Ngrok browser warning issue
+      if (error.config?.baseURL?.includes('ngrok-free.app') || error.config?.baseURL?.includes('ngrok.io')) {
+        console.warn('[API] Ngrok detected - If using free tier, you may need to visit the Ngrok URL in browser first to bypass the warning page');
+      }
     }
     return Promise.reject(error);
   }
