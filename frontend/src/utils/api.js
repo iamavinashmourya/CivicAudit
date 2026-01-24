@@ -22,13 +22,11 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    // Log API calls in development
-    if (import.meta.env.DEV) {
-      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, {
-        baseURL: config.baseURL,
-        params: config.params
-      });
-    }
+    // Always log API calls for debugging (especially important in production)
+    console.log(`[API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, {
+      params: config.params,
+      hasToken: !!token
+    });
     return config;
   },
   (error) => {
