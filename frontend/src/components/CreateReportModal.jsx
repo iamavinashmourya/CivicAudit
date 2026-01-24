@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { X, Camera, MapPin, RefreshCw, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { reportsAPI } from '../utils/api'
+import ReportDetailModal from './ReportDetailModal'
 
 /**
  * Enhanced modal for creating a report with camera capture and location fetching.
@@ -17,6 +18,7 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [duplicateReport, setDuplicateReport] = useState(null) // Store duplicate report if found
   
   // Form fields
   const [title, setTitle] = useState('')
@@ -324,20 +326,67 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
       const response = await reportsAPI.createReport(formData)
       
       if (response.success) {
-        setSubmitSuccess(true)
-        // Reset form
-        setSelectedImage(null)
-        setImagePreview(null)
-        setTitle('')
-        setDescription('')
-        setCategory('')
-        
-        // Close modal after 1.5 seconds
-        setTimeout(() => {
-          onClose()
-          // Optionally refresh the page or trigger a callback to refresh reports
-          window.location.reload()
-        }, 1500)
+        // Check if this is a duplicate report
+        if (response.isDuplicate && response.report) {
+          // Transform the report data to match ReportDetailModal format
+          const coordinates = response.report.location?.coordinates || []
+          const lng = coordinates[0]
+          const lat = coordinates[1]
+          
+          // Build full image URL
+          const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
+          const STATIC_BASE_URL = API_BASE_URL.replace(/\/api$/, '') || 'http://localhost:5002'
+          const imageUrl = response.report.imageUrl
+            ? response.report.imageUrl.startsWith('http')
+              ? response.report.imageUrl
+              : `${STATIC_BASE_URL}${response.report.imageUrl}`
+            : null
+
+          const transformedReport = {
+            id: response.report._id || response.report.id,
+            _id: response.report._id,
+            title: response.report.title || 'Untitled Report',
+            category: response.report.category || 'Other',
+            description: response.report.description || '',
+            imageUrl,
+            location: { lat, lng, coordinates: [lng, lat] },
+            status: response.report.status || 'Pending',
+            upvotes: Array.isArray(response.report.upvotes) ? response.report.upvotes : [],
+            downvotes: Array.isArray(response.report.downvotes) ? response.report.downvotes : [],
+            score: response.report.score || 0,
+            createdAt: new Date(response.report.createdAt),
+            userId: response.report.userId || { name: 'Unknown User' },
+            aiAnalysis: response.report.aiAnalysis || { priority: 'LOW', isCritical: false },
+          }
+
+          // Show message about duplicate
+          setSubmitError('')
+          // Close create modal and show duplicate report
+          setDuplicateReport(transformedReport)
+          // Reset form
+          setSelectedImage(null)
+          setImagePreview(null)
+          setTitle('')
+          setDescription('')
+          setCategory('')
+          // Don't close modal yet, let user see the duplicate report
+        } else {
+          // New report created successfully
+          setSubmitSuccess(true)
+          // Reset form
+          setSelectedImage(null)
+          setImagePreview(null)
+          setTitle('')
+          setDescription('')
+          setCategory('')
+          
+          // Close modal after 1.5 seconds
+          setTimeout(() => {
+            onClose()
+            // Optionally refresh the page or trigger a callback to refresh reports
+            window.location.reload()
+          }, 1500)
+        }
       } else {
         setSubmitError(response.message || 'Failed to submit report')
       }
@@ -613,6 +662,19 @@ function CreateReportModal({ isOpen, onClose, initialLocation = null }) {
           </form>
         </div>
       </div>
+
+      {/* Show duplicate report in detail modal */}
+      {duplicateReport && (
+        <ReportDetailModal
+          report={duplicateReport}
+          isOpen={!!duplicateReport}
+          onClose={() => {
+            setDuplicateReport(null)
+            onClose() // Close create modal after viewing duplicate
+            window.location.reload() // Refresh to show updated reports
+          }}
+        />
+      )}
     </div>
   )
 }

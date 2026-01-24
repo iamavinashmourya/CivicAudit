@@ -1,17 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet'
+import L from 'leaflet'
 import { MapPin, CheckCircle2, Plus, Loader2, AlertCircle } from 'lucide-react'
 import Layout from '../components/Layout'
 import CreateReportModal from '../components/CreateReportModal'
 import CivicMarker from '../components/CivicMarker'
 import ReportDetailModal from '../components/ReportDetailModal'
-import { reportsAPI } from '../utils/api'
+import { reportsAPI, profileAPI } from '../utils/api'
+
+// Calculate distance between two coordinates using Haversine formula (returns distance in meters)
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000 // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
 
 function Dashboard() {
   const [user, setUser] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [userLocation, setUserLocation] = useState(null)
+  const [homeLocation, setHomeLocation] = useState(null) // Home location from onboarding
+  const [currentLocation, setCurrentLocation] = useState(null) // Current GPS location
   const [isLocating, setIsLocating] = useState(true)
   const [locationError, setLocationError] = useState('')
   const [isCreateReportModalOpen, setIsCreateReportModalOpen] = useState(false)
@@ -37,47 +52,60 @@ function Dashboard() {
 
       if (!parsedUser.onboardingCompleted) {
         navigate('/onboarding')
+        return
+      }
+
+      // Fetch user's home location from profile
+      try {
+        const statusResponse = await profileAPI.getStatus()
+        if (statusResponse.success && statusResponse.profile?.location?.coordinates) {
+          const [lng, lat] = statusResponse.profile.location.coordinates
+          setHomeLocation({ lat, lng })
+          setIsLocating(false)
+        } else {
+          // Fallback to default location if no home location set
+          setHomeLocation({ lat: 22.3072, lng: 73.1812 })
+          setIsLocating(false)
+        }
+      } catch (error) {
+        console.error('Error fetching home location:', error)
+        // Fallback to default location
+        setHomeLocation({ lat: 22.3072, lng: 73.1812 })
+        setIsLocating(false)
       }
     }
 
     checkAuthAndOnboarding()
   }, [navigate])
 
+  // Get current GPS location (optional, for showing current position marker)
   useEffect(() => {
-    const fallbackLocation = { lat: 22.3072, lng: 73.1812 }
-
     if (!navigator.geolocation) {
-      setUserLocation(fallbackLocation)
-      setLocationError('Geolocation is not supported. Showing default view.')
-      setIsLocating(false)
       return
     }
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude })
-        setIsLocating(false)
+        setCurrentLocation({ lat: position.coords.latitude, lng: position.coords.longitude })
       },
       (error) => {
         console.error('Geolocation error:', error)
-        setUserLocation(fallbackLocation)
-        setLocationError('Unable to access location.')
-        setIsLocating(false)
+        // Don't set error, just don't show current location marker
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
   }, [])
 
-  // Fetch nearby reports when user location is available
+  // Fetch nearby reports when home location is available
   useEffect(() => {
     const fetchNearbyReports = async () => {
-      if (!userLocation) return
+      if (!homeLocation) return
 
       setIsFetchingReports(true)
       setFetchError('')
 
       try {
-        const response = await reportsAPI.getNearbyReports(userLocation.lat, userLocation.lng)
+        const response = await reportsAPI.getNearbyReports(homeLocation.lat, homeLocation.lng)
 
         if (response.success && response.reports) {
           // Transform backend data to match CivicMarker format
@@ -129,7 +157,7 @@ function Dashboard() {
     }
 
     fetchNearbyReports()
-  }, [userLocation])
+  }, [homeLocation])
 
   const handleReportClick = (report) => {
     setSelectedReport(report)
@@ -142,15 +170,15 @@ function Dashboard() {
         <div className="flex-1 flex flex-col lg:flex-row lg:h-[calc(100vh-80px)] lg:gap-6">
 
           {/* Map Section */}
-          <div className="w-full h-[45vh] lg:h-full lg:flex-1 overflow-hidden relative shadow-md lg:shadow-none border-b lg:border-r border-gray-200 bg-white">
-            {isLocating || !userLocation ? (
+          <div className="w-full h-[60vh] lg:h-full lg:flex-1 overflow-hidden relative shadow-md lg:shadow-none border-b lg:border-r border-gray-200 bg-white">
+            {isLocating || !homeLocation ? (
               <div className="h-full flex flex-col items-center justify-center bg-gray-50">
                 <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-200 border-t-gray-900"></div>
-                <p className="mt-4 text-sm text-gray-600">Detecting location...</p>
+                <p className="mt-4 text-sm text-gray-600">Loading your home area...</p>
               </div>
             ) : (
               <MapContainer
-                center={[userLocation.lat, userLocation.lng]}
+                center={[homeLocation.lat, homeLocation.lng]}
                 zoom={16}
                 scrollWheelZoom={true}
                 className="h-full w-full"
@@ -160,10 +188,70 @@ function Dashboard() {
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
-                {/* User Location Marker */}
-                <Marker position={[userLocation.lat, userLocation.lng]}>
-                  <Popup>You are here</Popup>
+                {/* Home Area Circle (2km radius) */}
+                <Circle
+                  center={[homeLocation.lat, homeLocation.lng]}
+                  radius={2000}
+                  pathOptions={{
+                    color: '#3B5CE8',
+                    fillColor: '#3B5CE8',
+                    fillOpacity: 0.1,
+                    weight: 2,
+                    dashArray: '5, 5'
+                  }}
+                />
+                {/* Home Location Marker */}
+                <Marker position={[homeLocation.lat, homeLocation.lng]}>
+                  <Popup>Your Home Area</Popup>
                 </Marker>
+                {/* Current Location Marker (only if within 2km of home) */}
+                {currentLocation && homeLocation && (() => {
+                  const distance = calculateDistance(
+                    homeLocation.lat,
+                    homeLocation.lng,
+                    currentLocation.lat,
+                    currentLocation.lng
+                  )
+                  // Show current location marker only if within 2km (2000 meters)
+                  if (distance <= 2000) {
+                    // Create custom icon for current location (blue with person icon)
+                    const currentLocationIcon = L.divIcon({
+                      className: 'current-location-marker',
+                      html: `
+                        <div style="
+                          width: 32px;
+                          height: 32px;
+                          background: #10B981;
+                          border: 3px solid white;
+                          border-radius: 50%;
+                          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                          display: flex;
+                          align-items: center;
+                          justify-content: center;
+                        ">
+                          <div style="
+                            width: 12px;
+                            height: 12px;
+                            background: white;
+                            border-radius: 50%;
+                          "></div>
+                        </div>
+                      `,
+                      iconSize: [32, 32],
+                      iconAnchor: [16, 16],
+                      popupAnchor: [0, -16],
+                    })
+                    return (
+                      <Marker 
+                        position={[currentLocation.lat, currentLocation.lng]}
+                        icon={currentLocationIcon}
+                      >
+                        <Popup>You are here ({Math.round(distance)}m from home)</Popup>
+                      </Marker>
+                    )
+                  }
+                  return null
+                })()}
 
                 {/* Smart Markers for Reports */}
                 {reports.map((report) => (
@@ -191,43 +279,13 @@ function Dashboard() {
                     <span className="text-gray-600">Active Reports</span>
                     <span className="font-bold text-gray-900">{reports.length}</span>
                   </div>
-                  {reports.length > 0 && (
-                    <>
-                      <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 transition-all" 
-                          style={{ 
-                            width: `${(reports.filter(r => r.status === 'Resolved').length / reports.length) * 100}%` 
-                          }}
-                        ></div>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Resolved</span>
-                        <span className="font-bold text-gray-900">
-                          {reports.filter(r => r.status === 'Resolved').length}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Verified</span>
-                        <span className="font-bold text-green-600">
-                          {reports.filter(r => r.status === 'Verified').length}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Critical</span>
-                        <span className="font-bold text-red-600">
-                          {reports.filter(r => r.aiAnalysis?.priority === 'CRITICAL' || r.aiAnalysis?.isCritical).length}
-                        </span>
-                      </div>
-                    </>
-                  )}
                 </div>
               )}
             </div>
           </div>
 
           {/* Content Section */}
-          <div className="flex-1 bg-white lg:bg-transparent px-4 pt-2 pb-6 lg:py-0 lg:pl-0 lg:pr-5 lg:w-[400px] lg:flex-none overflow-y-auto">
+          <div className="h-[40vh] lg:flex-1 bg-white lg:bg-transparent px-4 pt-2 pb-24 lg:pb-6 lg:py-0 lg:pl-0 lg:pr-5 lg:w-[400px] lg:flex-none overflow-y-visible lg:overflow-y-auto">
             <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-3 lg:hidden"></div>
 
             <div className="flex items-center mb-4 mt-1">
@@ -252,7 +310,7 @@ function Dashboard() {
                 <p className="text-gray-500 text-xs mt-2">No reports found within 2km of your location.</p>
               </div>
             ) : (
-              <div className="flex lg:flex-col gap-4 overflow-x-auto lg:overflow-visible pb-8 lg:pb-0 -mx-4 px-4 lg:mx-0 lg:px-0 hide-scrollbar snap-x snap-mandatory">
+              <div className="flex lg:flex-col gap-4 overflow-x-auto lg:overflow-visible overflow-y-visible pb-0 lg:pb-0 -mx-4 px-4 lg:mx-0 lg:px-0 hide-scrollbar snap-x snap-mandatory">
                 {reports.map((report) => (
                   <div 
                     key={report.id || report._id} 
@@ -288,20 +346,20 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Floating Action Button - Create Report */}
+        {/* Floating Action Button - Create Report (Hidden on mobile, shown on desktop) */}
         <button
           onClick={() => setIsCreateReportModalOpen(true)}
-          className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-[500] w-14 h-14 lg:w-16 lg:h-16 bg-gradient-to-r from-[#3B5CE8] to-[#14B8A6] hover:from-[#3149ba] hover:to-[#0d9488] text-white rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-110 active:scale-95 flex items-center justify-center group"
+          className="hidden lg:flex fixed bottom-8 right-8 z-[500] w-16 h-16 bg-gradient-to-r from-[#3B5CE8] to-[#14B8A6] hover:from-[#3149ba] hover:to-[#0d9488] text-white rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-110 active:scale-95 items-center justify-center group"
           aria-label="Create new report"
         >
-          <Plus className="w-6 h-6 lg:w-7 lg:h-7 transition-transform group-hover:rotate-90" strokeWidth={2.5} />
+          <Plus className="w-7 h-7 transition-transform group-hover:rotate-90" strokeWidth={2.5} />
         </button>
 
         {/* Create Report Modal */}
         <CreateReportModal
           isOpen={isCreateReportModalOpen}
           onClose={() => setIsCreateReportModalOpen(false)}
-          initialLocation={userLocation}
+          initialLocation={homeLocation || currentLocation}
         />
 
         {/* Report Detail Modal */}

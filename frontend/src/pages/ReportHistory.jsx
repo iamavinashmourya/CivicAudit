@@ -129,19 +129,19 @@ function ReportHistory() {
 
   return (
     <Layout user={user} isLoading={isLoading}>
-      <div className="max-w-6xl mx-auto p-4 lg:p-6">
+      <div className="max-w-6xl mx-auto px-4 py-4 pb-24 lg:p-6 lg:pb-6">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 text-center sm:text-left">
-          <div className="flex items-start gap-4 justify-center sm:justify-start">
+        <div className="mb-6">
+          <div className="flex items-start gap-3 lg:gap-4">
             <button
               onClick={() => navigate('/dashboard')}
-              className="p-2 rounded-xl bg-white border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 transition"
+              className="p-2 rounded-xl bg-white border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 transition flex-shrink-0"
               aria-label="Back to dashboard"
             >
               <ArrowLeft className="w-5 h-5 text-gray-700" />
             </button>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">My Report History</h2>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">My Report History</h2>
               <p className="text-sm text-gray-600 mt-1">
                 All reports you've submitted •{' '}
                 <span className="font-semibold text-gray-900">{reports.length}</span> total

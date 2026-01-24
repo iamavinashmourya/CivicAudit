@@ -12,11 +12,25 @@ function NearbyReports() {
   const [reports, setReports] = useState([])
   const [selectedReport, setSelectedReport] = useState(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
-  const [userLocation, setUserLocation] = useState(null)
+  const [homeLocation, setHomeLocation] = useState(null) // Home location from onboarding
   const [isFetchingReports, setIsFetchingReports] = useState(false)
   const [fetchError, setFetchError] = useState('')
 
   const navigate = useNavigate()
+
+  // Get current user ID from localStorage
+  const getCurrentUserId = () => {
+    try {
+      const userData = localStorage.getItem('user')
+      if (userData) {
+        const user = JSON.parse(userData)
+        return user._id || user.id || null
+      }
+    } catch (error) {
+      console.error('Error getting user ID:', error)
+    }
+    return null
+  }
   
   // Get API base URL (without /api for static files)
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
@@ -43,12 +57,23 @@ function NearbyReports() {
           navigate('/onboarding')
           return
         }
+        
+        // Fetch user's home location from profile
+        if (statusResponse.success && statusResponse.profile?.location?.coordinates) {
+          const [lng, lat] = statusResponse.profile.location.coordinates
+          setHomeLocation({ lat, lng })
+        } else {
+          // Fallback to default location if no home location set
+          setHomeLocation({ lat: 22.3072, lng: 73.1812 })
+        }
       } catch (error) {
         console.error('Error checking onboarding status:', error)
         if (!parsedUser.onboardingCompleted) {
           navigate('/onboarding')
           return
         }
+        // Fallback to default location
+        setHomeLocation({ lat: 22.3072, lng: 73.1812 })
       } finally {
         setIsLoading(false)
       }
@@ -57,41 +82,16 @@ function NearbyReports() {
     checkAuthAndOnboarding()
   }, [navigate])
 
-  // Get user location
-  useEffect(() => {
-    const fallbackLocation = { lat: 22.3072, lng: 73.1812 }
-
-    if (!navigator.geolocation) {
-      setUserLocation(fallbackLocation)
-      return
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords
-        setUserLocation({ lat: latitude, lng: longitude })
-      },
-      () => {
-        setUserLocation(fallbackLocation)
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    )
-  }, [])
-
   // Fetch nearby reports from API
   useEffect(() => {
     const fetchNearbyReports = async () => {
-      if (!userLocation) return
+      if (!homeLocation) return
 
       setIsFetchingReports(true)
       setFetchError('')
 
       try {
-        const response = await reportsAPI.getNearbyReports(userLocation.lat, userLocation.lng)
+        const response = await reportsAPI.getNearbyReports(homeLocation.lat, homeLocation.lng)
 
         if (response.success && response.reports) {
           // Transform backend data to match ReportCard format
@@ -127,20 +127,48 @@ function NearbyReports() {
             }
           })
 
-          // Sort reports by priority: CRITICAL > HIGH > MEDIUM > LOW
+          // Filter out user's own reports (only show other users' reports)
+          const currentUserId = getCurrentUserId()
+          const filteredReports = transformedReports.filter((report) => {
+            if (!currentUserId) return true // If no user ID, show all
+            
+            const reportUserId = report.userId?._id || report.userId?.id || report.userId
+            return String(reportUserId) !== String(currentUserId)
+          })
+
+          // Sort reports: CRITICAL and HIGH first (by date), then MEDIUM and LOW (by date)
+          // Within same priority group, sort by latest first (newest reports first)
+          const getPriorityGroup = (priority) => {
+            if (priority === 'CRITICAL' || priority === 'HIGH') return 0 // High priority group
+            return 1 // Normal priority group (MEDIUM, LOW)
+          }
+          
           const priorityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 }
-          const sortedReports = transformedReports.sort((a, b) => {
+          
+          const sortedReports = filteredReports.sort((a, b) => {
             const priorityA = a.aiAnalysis?.priority || 'LOW'
             const priorityB = b.aiAnalysis?.priority || 'LOW'
+            
+            // First, separate by priority group (CRITICAL/HIGH vs MEDIUM/LOW)
+            const groupA = getPriorityGroup(priorityA)
+            const groupB = getPriorityGroup(priorityB)
+            
+            if (groupA !== groupB) {
+              return groupA - groupB // High priority group first
+            }
+            
+            // Within same group, sort by priority order
             const orderA = priorityOrder[priorityA] ?? 3
             const orderB = priorityOrder[priorityB] ?? 3
             
-            // If same priority, sort by score (higher score first)
-            if (orderA === orderB) {
-              return (b.score || 0) - (a.score || 0)
+            if (orderA !== orderB) {
+              return orderA - orderB
             }
             
-            return orderA - orderB
+            // If same priority, sort by date (newest first)
+            const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt)
+            const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt)
+            return dateB.getTime() - dateA.getTime() // Newest first
           })
           
           setReports(sortedReports)
@@ -160,7 +188,7 @@ function NearbyReports() {
     }
 
     fetchNearbyReports()
-  }, [userLocation, API_BASE_URL])
+  }, [homeLocation, API_BASE_URL])
 
   const filteredReports = reports
 
@@ -176,19 +204,19 @@ function NearbyReports() {
 
   return (
     <Layout user={user} isLoading={isLoading}>
-      <div className="max-w-6xl mx-auto p-4 lg:p-6">
+      <div className="max-w-6xl mx-auto px-4 py-4 pb-24 lg:p-6 lg:pb-6">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 text-center sm:text-left">
-          <div className="flex items-start gap-4 justify-center sm:justify-start">
+        <div className="mb-6">
+          <div className="flex items-start gap-3 lg:gap-4">
             <button
               onClick={() => navigate('/dashboard')}
-              className="p-2 rounded-xl bg-white border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 transition"
+              className="p-2 rounded-xl bg-white border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 transition flex-shrink-0"
               aria-label="Back to dashboard"
             >
               <ArrowLeft className="w-5 h-5 text-gray-700" />
             </button>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Nearby Reports</h2>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">Nearby Reports</h2>
               <p className="text-sm text-gray-600 mt-1">
                 Reports within <span className="font-semibold text-gray-900">2km</span> of your location •{' '}
                 <span className="font-semibold text-gray-900">{filteredReports.length}</span> found
@@ -212,9 +240,9 @@ function NearbyReports() {
             <button
               onClick={() => {
                 setFetchError('')
-                if (userLocation) {
+                if (homeLocation) {
                   // Trigger refetch by updating location slightly
-                  setUserLocation({ ...userLocation })
+                  setHomeLocation({ ...homeLocation })
                 }
               }}
               className="mt-4 px-4 py-2 bg-[#3B5CE8] text-white rounded-lg hover:bg-[#3149ba] transition-colors"

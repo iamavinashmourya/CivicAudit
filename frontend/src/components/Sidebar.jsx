@@ -32,18 +32,23 @@ function Sidebar({ user, onLogout }) {
                     className="flex flex-col items-center p-4 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 hover:scale-[1.02] transition-all border border-gray-100 group"
                 >
                     <div className="relative">
-                        {user.profileImageUrl ? (
+                        {user.profilePhoto ? (
                             <img
-                                src={user.profileImageUrl}
+                                src={user.profilePhoto.startsWith('http') ? user.profilePhoto : `${import.meta.env.VITE_API_URL?.replace(/\/api$/, '') || 'http://localhost:5002'}${user.profilePhoto}`}
                                 alt={user.name || 'Profile'}
                                 className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-md group-hover:border-blue-100 transition-colors"
+                                onError={(e) => {
+                                    e.target.style.display = 'none'
+                                    if (e.target.nextElementSibling) {
+                                        e.target.nextElementSibling.style.display = 'flex'
+                                    }
+                                }}
                             />
-                        ) : (
-                            <div className="flex items-center justify-center w-20 h-20 rounded-full bg-white border-4 border-gray-100 shadow-sm text-2xl font-bold text-gray-700">
-                                {(user.name || 'U').charAt(0).toUpperCase()}
-                            </div>
-                        )}
-                        {user.onboardingCompleted && (
+                        ) : null}
+                        <div className="flex items-center justify-center w-20 h-20 rounded-full bg-white border-4 border-gray-100 shadow-sm text-2xl font-bold text-gray-700" style={{ display: user?.profilePhoto ? 'none' : 'flex' }}>
+                            {(user.name || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        {user.isVerified && (
                             <div className="absolute bottom-0 right-0 bg-white rounded-full p-1 shadow-sm">
                                 <CheckCircle2 className="w-5 h-5 text-green-500 fill-green-50" />
                             </div>
@@ -54,7 +59,7 @@ function Sidebar({ user, onLogout }) {
                         <h3 className="font-semibold text-gray-900 truncate max-w-[180px]">
                             {user.name || 'User'}
                         </h3>
-                        <p className="text-sm text-gray-500 mt-0.5">Citizen Account</p>
+                        <p className="text-sm text-gray-500 mt-0.5 capitalize">{user.role || 'Citizen'} Account</p>
                     </div>
                 </div>
             </div>

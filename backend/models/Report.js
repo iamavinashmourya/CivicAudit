@@ -37,8 +37,12 @@ const reportSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Verified', 'Resolved', 'Rejected'],
+    enum: ['Pending', 'Verified', 'Resolved', 'Rejected', 'Deleted'],
     default: 'Pending',
+  },
+  rejectedAt: {
+    type: Date,
+    default: null,
   },
   // AI Analysis fields
   aiAnalysis: {
