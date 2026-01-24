@@ -15,7 +15,7 @@ router.post('/', auth, (req, res, next) => {
   uploadReportImage(req, res, async (err) => {
     if (err) {
       console.error('Report image upload error:', err);
-      
+
       // Provide helpful error message for field name mismatch
       if (err.code === 'LIMIT_UNEXPECTED_FILE') {
         return res.status(400).json({
@@ -23,7 +23,7 @@ router.post('/', auth, (req, res, next) => {
           message: `Unexpected field name: "${err.field}". Please use field name "image" (lowercase) for the file upload.`,
         });
       }
-      
+
       return res.status(400).json({
         success: false,
         message: err.message || 'Failed to upload image',
@@ -98,17 +98,17 @@ router.post('/', auth, (req, res, next) => {
       // Calculate distance for each report and find if any are within 500m
       let existingReport = null;
       let closestDistance = Infinity;
-      
+
       for (const report of allReports) {
         if (!report.location || !report.location.coordinates) continue;
-        
+
         const [reportLng, reportLat] = report.location.coordinates;
-        
+
         // Calculate distance using Haversine formula
         const R = 6371000; // Earth's radius in meters
         const dLat = (latitude - reportLat) * Math.PI / 180;
         const dLng = (longitude - reportLng) * Math.PI / 180;
-        const a = 
+        const a =
           Math.sin(dLat / 2) * Math.sin(dLat / 2) +
           Math.cos(reportLat * Math.PI / 180) * Math.cos(latitude * Math.PI / 180) *
           Math.sin(dLng / 2) * Math.sin(dLng / 2);
@@ -155,7 +155,7 @@ router.post('/', auth, (req, res, next) => {
       // 1. Prepare text for AI analysis
       // Combine title and description for better analysis (both may contain important keywords)
       const textToAnalyze = [title, description].filter(Boolean).join('. ').trim();
-      
+
       // Debug logging
       console.log(`[AI Integration] Text to analyze: "${textToAnalyze.substring(0, 100)}${textToAnalyze.length > 100 ? '...' : ''}"`);
       console.log(`[AI Integration] Has description: ${!!description}, Has title: ${!!title}`);
@@ -172,9 +172,9 @@ router.post('/', auth, (req, res, next) => {
       // 3. Call Python AI Service with Image + Text (Gatekeeper)
       if (textToAnalyze.length > 2 && req.file) {
         try {
-          const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:5001';
+          const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:5001';
           console.log(`[AI Integration] Calling AI service at ${aiServiceUrl}/analyze with image`);
-          
+
           // Prepare FormData with image and text
           const form = new FormData();
           form.append('text', textToAnalyze);
@@ -195,6 +195,8 @@ router.post('/', auth, (req, res, next) => {
           if (aiResponse.data.status === 'success') {
             aiData = aiResponse.data.analysis;
             console.log(`🤖 AI Service Success: ${aiData.priority} (is_critical: ${aiData.is_critical})`);
+            console.log(`📊 Verification Score: ${aiData.verification_score || 0}/100`);
+            console.log(`⚠️ Dangerous Content: ${aiData.is_dangerous || false} (Type: ${aiData.danger_type || 'none'})`);
           } else {
             console.warn(`[AI Integration] AI service returned non-success status: ${aiResponse.data.status}`);
           }
@@ -209,7 +211,7 @@ router.post('/', auth, (req, res, next) => {
               reason: rejectionData.reason || 'Image does not match description',
             });
           }
-          
+
           // Other errors - continue with defaults (graceful degradation)
           console.error('⚠️ AI Service Error (Continuing anyway):', aiError.message);
           if (aiError.response) {
@@ -239,17 +241,28 @@ router.post('/', auth, (req, res, next) => {
       );
 
       // 5. Determine initial status based on AI analysis
-      // If AI says CRITICAL (Real Fire/Flood), Auto-Verify.
-      // Otherwise, mark Pending.
+      // STRICT RULE: Auto-verify ONLY if CRITICAL priority AND dangerous content detected
+      // All other priorities (HIGH, MEDIUM, LOW) remain Pending
       let initialStatus = 'Pending';
-      if (aiData.priority === 'CRITICAL') {
+      const verificationScore = aiData.verification_score || 0;
+      const isDangerous = aiData.is_dangerous || false;
+      const dangerType = aiData.danger_type || null;
+
+      // Verification Threshold Logic:
+      // For DANGEROUS content (Fire, Electrical), remove verification score threshold.
+      // If AI detects it as DANGEROUS and CRITICAL, we must auto-verify it for safety.
+      if (aiData.priority === 'CRITICAL' && isDangerous) {
         initialStatus = 'Verified';
-        console.log(`✅ Auto-verifying CRITICAL report`);
+        console.log(`✅ Auto-verifying CRITICAL dangerous report (${dangerType}) - Safety Priority`);
+      } else if (aiData.priority === 'CRITICAL') {
+        console.log(`⚠️ CRITICAL priority but NOT dangerous content, keeping as Pending`);
+      } else {
+        console.log(`📋 Priority: ${aiData.priority}, Status: Pending (auto-verification only for CRITICAL + dangerous)`);
       }
 
       // 6. Use AI-suggested category if provided (and not 'Other')
-      const finalCategory = (aiData.suggested_category && aiData.suggested_category !== 'Other') 
-        ? aiData.suggested_category 
+      const finalCategory = (aiData.suggested_category && aiData.suggested_category !== 'Other')
+        ? aiData.suggested_category
         : category.trim();
 
       // 7. Create Report with AI Data
@@ -267,6 +280,9 @@ router.post('/', auth, (req, res, next) => {
         aiAnalysis: {
           priority: aiData.priority,
           isCritical: aiData.is_critical,
+          verificationScore: verificationScore,
+          isDangerous: isDangerous,
+          dangerType: dangerType,
           sentimentScore: aiData.scores?.sentiment || 0,
           keywords: flattenedKeywords,
           processedAt: new Date(),
@@ -320,7 +336,7 @@ router.put('/:id/vote', auth, async (req, res) => {
 
     const userId = req.user._id;
     const userIdStr = userId.toString();
-    
+
     // Prevent downvoting own reports (but allow upvoting)
     if (type === 'down' && report.userId.toString() === userIdStr) {
       return res.status(403).json({
@@ -351,7 +367,7 @@ router.put('/:id/vote', auth, async (req, res) => {
     report.score = (report.upvotes?.length || 0) - (report.downvotes?.length || 0);
 
     // SMART STATUS UPDATE (Civic Jury Correction Logic)
-    
+
     // CASE A: Community Trusts it (Score >= 3)
     // Set status to Verified if currently Pending
     if (report.score >= 3) {
@@ -363,7 +379,7 @@ router.put('/:id/vote', auth, async (req, res) => {
         report.status = 'Verified';
         console.log(`✅ Community overrode rejection (score: ${report.score})`);
       }
-    } 
+    }
     // CASE B: Community Rejects it (Score <= -3)
     // Mark as Rejected (Spam/Fake) - even if AI verified it
     else if (report.score <= -3) {
@@ -389,14 +405,14 @@ router.put('/:id/vote', auth, async (req, res) => {
     // More upvotes = Higher priority (community validation)
     const upvoteCount = report.upvotes?.length || 0;
     const currentPriority = report.aiAnalysis?.priority || 'LOW';
-    
+
     // Priority escalation based on upvotes:
     // - 5+ upvotes → CRITICAL (high community trust)
     // - 3-4 upvotes → HIGH (strong community support)
     // - 2 upvotes → MEDIUM (moderate community support)
     // - 0-1 upvotes → Keep current or LOW (minimal support)
     let newPriority = currentPriority;
-    
+
     if (upvoteCount >= 5) {
       newPriority = 'CRITICAL';
       if (currentPriority !== 'CRITICAL') {
@@ -420,13 +436,13 @@ router.put('/:id/vote', auth, async (req, res) => {
         console.log(`⬇️ Priority downgraded from CRITICAL to HIGH (low community support)`);
       }
     }
-    
+
     // Update priority in aiAnalysis
     if (!report.aiAnalysis) {
       report.aiAnalysis = {};
     }
     report.aiAnalysis.priority = newPriority;
-    
+
     // Update isCritical flag based on priority
     report.aiAnalysis.isCritical = (newPriority === 'CRITICAL');
 
@@ -501,7 +517,7 @@ router.get('/nearby', auth, async (req, res) => {
     };
 
     const userId = req.user._id;
-    
+
     // Include user's own reports if Verified or Resolution Pending
     // Include other users' reports (Pending, Verified, Resolution Pending) but exclude Rejected and Deleted
     const reports = await Report.find({
@@ -515,7 +531,7 @@ router.get('/nearby', auth, async (req, res) => {
         // User's own reports: Verified or Resolution Pending
         { userId: userId, status: { $in: ['Verified', 'Resolution Pending'] } },
         // Other users' reports: Pending, Verified, Resolution Pending (but not Rejected or Deleted)
-        { 
+        {
           userId: { $ne: userId },
           status: { $in: ['Pending', 'Verified', 'Resolution Pending'] }
         }
@@ -543,7 +559,7 @@ router.get('/nearby', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Nearby reports error:', error);
-    
+
     // Check if it's a geospatial index error
     if (error.message && error.message.includes('index')) {
       return res.status(500).json({
@@ -567,7 +583,7 @@ router.get('/me', auth, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const reports = await Report.find({ 
+    const reports = await Report.find({
       userId,
       status: { $ne: 'Deleted' }, // Exclude deleted reports
     })
@@ -612,7 +628,7 @@ router.get('/:id', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Get report error:', error);
-    
+
     // Handle invalid ObjectId
     if (error.name === 'CastError') {
       return res.status(400).json({
@@ -707,20 +723,20 @@ router.post('/:id/verify-resolution', auth, async (req, res) => {
     // Check rejection threshold (if 2+ users reject, reset to previous status)
     const rejectionCount = report.resolutionVerification.rejections.length;
     const rejectionThreshold = 2;
-    
+
     if (rejectionCount >= rejectionThreshold) {
       // Reset status back to Verified (previous status before Resolution Pending)
       report.status = 'Verified';
       report.resolutionVerification = null; // Clear verification data
       report.resolvedAt = null;
-      
+
       // Send notification to admin that resolution was rejected
       const Notification = require('../models/Notification');
       try {
         // Find admin users to notify
         const User = require('../models/User');
         const admins = await User.find({ role: 'admin' }).select('_id').lean();
-        
+
         const adminNotifications = admins.map(admin => ({
           userId: admin._id,
           reportId: report._id,
@@ -729,16 +745,16 @@ router.post('/:id/verify-resolution', auth, async (req, res) => {
           message: `Report "${report.title}" resolution was rejected by ${rejectionCount} users. Status reset to Verified.`,
           read: false
         }));
-        
+
         if (adminNotifications.length > 0) {
           await Notification.insertMany(adminNotifications);
         }
       } catch (notifError) {
         console.error('[Resolution Verification] Error sending rejection notification:', notifError);
       }
-      
+
       await report.save();
-      
+
       return res.json({
         success: true,
         message: `Resolution rejected by ${rejectionCount} users. Report status reset to Verified.`,
@@ -758,7 +774,7 @@ router.post('/:id/verify-resolution', auth, async (req, res) => {
       // Close the ticket
       report.status = 'Closed';
       report.resolutionVerification.closedAt = new Date();
-      
+
       // Send notification to report creator
       const Notification = require('../models/Notification');
       try {
@@ -780,7 +796,7 @@ router.post('/:id/verify-resolution', auth, async (req, res) => {
 
     res.json({
       success: true,
-      message: action === 'approve' 
+      message: action === 'approve'
         ? `Resolution approved. ${approvalCount}/${requiredApprovals} approvals received.`
         : 'Resolution rejected.',
       report: {

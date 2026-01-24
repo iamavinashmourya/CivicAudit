@@ -257,6 +257,71 @@ def decide_priority(text):
     return "LOW"
 
 # -------------------------------------------------
+# Verification Score Calculation
+# -------------------------------------------------
+def calculate_verification_score(desc_similarity, civic_similarity, keywords_found):
+    """
+    Calculate verification score (0-100) based on:
+    - Image-description similarity (40 points)
+    - Civic relevance (30 points)
+    - Keyword match quality (30 points)
+    """
+    # Image-description match (0-40 points)
+    # Scale similarity from [0.2, 0.6] to [0, 40]
+    desc_score = min(40, max(0, (desc_similarity - 0.2) / 0.4 * 40))
+    
+    # Civic relevance (0-30 points)
+    # Scale similarity from [0.22, 0.5] to [0, 30]
+    civic_score = min(30, max(0, (civic_similarity - 0.22) / 0.28 * 30))
+    
+    # Keyword quality (0-30 points)
+    # More keywords = higher score
+    keyword_score = min(30, len(keywords_found) * 6)
+    
+    total_score = desc_score + civic_score + keyword_score
+    return round(min(100, max(0, total_score)))
+
+# -------------------------------------------------
+# Dangerous Content Detection
+# -------------------------------------------------
+def detect_dangerous_content(text, civic_similarity, keywords_found):
+    """
+    Detect dangerous/critical content that requires immediate attention
+    Returns: (is_dangerous: bool, danger_type: str|None)
+    """
+    text_lower = text.lower()
+    
+    # Fire/Explosion hazards
+    fire_keywords = ["fire", "smoke", "explosion", "burning", "flame", "blaze"]
+    if any(k in text_lower for k in fire_keywords):
+        # Verify with civic similarity (should be high for real fire)
+        if civic_similarity >= 0.25:
+            return True, "fire"
+    
+    # Electrical hazards
+    electrical_keywords = ["electric", "spark", "wire", "cable", "transformer", "electrocute", "voltage"]
+    danger_electrical = ["sparking", "exposed wire", "hanging wire", "broken wire", "live wire"]
+    if any(k in text_lower for k in electrical_keywords):
+        # Check for danger indicators
+        if any(d in text_lower for d in danger_electrical) or civic_similarity >= 0.28:
+            return True, "electrical"
+    
+    # Severe flooding
+    flood_keywords = ["flood", "flooding", "submerged", "water overflow", "severe water"]
+    if any(k in text_lower for k in flood_keywords):
+        if civic_similarity >= 0.25:
+            return True, "flood"
+    
+    # Structural hazards
+    structural_keywords = ["collapse", "collapsing", "falling", "unstable building", "crack building"]
+    if any(k in text_lower for k in structural_keywords):
+        if civic_similarity >= 0.26:
+            return True, "structural"
+    
+    return False, None
+
+
+# -------------------------------------------------
 # Health Check
 # -------------------------------------------------
 @app.route("/", methods=["GET"])
@@ -311,12 +376,37 @@ def analyze():
         priority = decide_priority(text)
         urgency = abs(TextBlob(text).sentiment.polarity)
         
+        # ---- VERIFICATION SCORE ----
+        # Extract values from debug_info
+        desc_similarity = debug_info.get('description_match_score', 0)
+        civic_similarity = debug_info.get('civic_score', 0)
+        keywords_found = debug_info.get('keywords_found', [])
+        
+        verification_score = calculate_verification_score(
+            desc_similarity, 
+            civic_similarity, 
+            keywords_found
+        )
+        
+        # ---- DANGEROUS CONTENT DETECTION ----
+        is_dangerous, danger_type = detect_dangerous_content(
+            text, 
+            civic_similarity, 
+            keywords_found
+        )
+        
+        print(f"📊 Verification Score: {verification_score}/100")
+        print(f"⚠️ Dangerous Content: {is_dangerous} (Type: {danger_type})")
+        
         return jsonify({
             "status": "success",
             "analysis": {
                 "priority": priority,
                 "is_critical": priority == "CRITICAL",
                 "urgency": round(urgency, 2),
+                "verification_score": verification_score,
+                "is_dangerous": is_dangerous,
+                "danger_type": danger_type,
                 "verification_reason": reason,
                 "validation_details": debug_info
             }
