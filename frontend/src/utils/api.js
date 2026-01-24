@@ -53,6 +53,11 @@ api.interceptors.response.use(
         baseURL: error.config?.baseURL,
         message: 'Network error - check if backend is running and CORS is configured'
       });
+      
+      // Check if this might be an Ngrok browser warning issue
+      if (error.config?.baseURL?.includes('ngrok-free.app') || error.config?.baseURL?.includes('ngrok.io')) {
+        console.warn('[API] Ngrok detected - If using free tier, you may need to visit the Ngrok URL in browser first to bypass the warning page');
+      }
     }
     return Promise.reject(error);
   }
@@ -143,6 +148,12 @@ export const reportsAPI = {
   // Get a single report by ID (if needed in future)
   getReportById: async (reportId) => {
     const response = await api.get(`/reports/${reportId}`);
+    return response.data;
+  },
+
+  // Verify resolution (approve or reject)
+  verifyResolution: async (reportId, action) => {
+    const response = await api.post(`/reports/${reportId}/verify-resolution`, { action });
     return response.data;
   },
 };

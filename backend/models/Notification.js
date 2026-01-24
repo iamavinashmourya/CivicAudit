@@ -14,8 +14,12 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['new_report', 'report_verified', 'report_upvoted', 'report_resolved'],
+    enum: ['new_report', 'report_verified', 'report_upvoted', 'report_resolved', 'resolution_verification', 'report_closed', 'resolution_rejected'],
     default: 'new_report'
+  },
+  link: {
+    type: String,
+    default: null
   },
   title: {
     type: String,

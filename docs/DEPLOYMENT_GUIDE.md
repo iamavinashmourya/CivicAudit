@@ -217,6 +217,30 @@ CORS(app, origins=["*"])  # For demo only - restrict in production
 - Check `CORS_ORIGIN` in backend `.env` includes Vercel URL
 - Restart backend after changing `.env`
 
+### Problem: OPTIONS succeeds but GET request fails (Ngrok Browser Warning)
+**Symptoms**: 
+- OPTIONS preflight returns 204 (success)
+- GET request fails or shows red X in Network tab
+- Error: "Failed to fetch nearby reports"
+
+**Root Cause**: Ngrok free tier shows a browser warning page that blocks automated API requests
+
+**Solution**:
+1. **Bypass Ngrok Browser Warning**:
+   - Open your Ngrok URL in a browser: `https://nontransmittal-gustavo-diatonic.ngrok-free.dev`
+   - Click the **"Visit Site"** button on the warning page
+   - This sets a cookie that allows subsequent API requests to pass through
+   - Refresh your Vercel app after doing this
+
+2. **Alternative: Use Ngrok Header** (may not always work):
+   - In your backend, you can try adding a header, but this doesn't always bypass the warning
+
+3. **Best Solution for Demo**:
+   - Use Ngrok paid plan (removes browser warning completely)
+   - Or visit the Ngrok URL once before starting your demo
+
+4. **For Production**: Use proper hosting (not Ngrok)
+
 ### Problem: AI Service not responding
 **Solution**:
 - Check Python service is running on port 5001

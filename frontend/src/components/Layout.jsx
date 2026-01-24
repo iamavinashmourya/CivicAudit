@@ -106,6 +106,7 @@ function Layout({ user, children, isLoading }) {
                 if (response.success && response.report) {
                     setSelectedReport(response.report)
                     setIsReportModalOpen(true)
+                    // If it's a resolution verification notification, the modal will show verify/deny buttons
                 }
             } catch (error) {
                 console.error('Error fetching report:', error)
