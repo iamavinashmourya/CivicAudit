@@ -69,6 +69,12 @@ export const profileAPI = {
     const response = await api.get('/profile/status');
     return response.data;
   },
+
+  // Get full user profile
+  getProfile: async () => {
+    const response = await api.get('/profile');
+    return response.data;
+  },
 };
 
 // Reports API functions

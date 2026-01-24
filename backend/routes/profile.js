@@ -69,10 +69,10 @@ router.put('/identity', async (req, res) => {
       });
     }
 
-    if (!age && !dateOfBirth) {
+    if (!dateOfBirth) {
       return res.status(400).json({
         success: false,
-        message: 'Either age or dateOfBirth is required.'
+        message: 'Date of birth is required.'
       });
     }
 
@@ -88,20 +88,17 @@ router.put('/identity', async (req, res) => {
     user.name = name.trim();
     user.gender = gender;
 
-    if (dateOfBirth) {
-      user.dateOfBirth = new Date(dateOfBirth);
-      // Calculate age from DOB
-      const today = new Date();
-      const birthDate = new Date(dateOfBirth);
-      let calculatedAge = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        calculatedAge--;
-      }
-      user.age = calculatedAge;
-    } else if (age) {
-      user.age = parseInt(age);
+    // Always use dateOfBirth to calculate age
+    user.dateOfBirth = new Date(dateOfBirth);
+    // Calculate age from DOB
+    const today = new Date();
+    const birthDate = new Date(dateOfBirth);
+    let calculatedAge = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      calculatedAge--;
     }
+    user.age = calculatedAge;
 
     await user.save();
 
@@ -258,6 +255,47 @@ router.post('/verify-kyc', async (req, res) => {
   }
 });
 
+// GET /api/profile - Get full user profile
+router.get('/', async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-__v');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.'
+      });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        _id: user._id,
+        phoneNumber: user.phoneNumber,
+        name: user.name || '',
+        role: user.role || 'citizen',
+        profilePhoto: user.profilePhoto || null,
+        gender: user.gender || null,
+        age: user.age || null,
+        dateOfBirth: user.dateOfBirth || null,
+        aadhaarNumber: user.aadhaarNumber || null,
+        wardName: user.wardName || null,
+        location: user.location || null,
+        isVerified: user.isVerified || false,
+        onboardingCompleted: user.onboardingCompleted || false,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get profile',
+      error: error.message
+    });
+  }
+});
+
 // GET /api/profile/status
 router.get('/status', async (req, res) => {
   try {
@@ -276,7 +314,11 @@ router.get('/status', async (req, res) => {
         hasPhoto: !!user.profilePhoto,
         hasIdentity: !!(user.name && user.gender && (user.age || user.dateOfBirth)),
         hasLocation: !!(user.location && user.location.coordinates[0] !== 0 && user.location.coordinates[1] !== 0),
-        isVerified: user.isVerified
+        isVerified: user.isVerified,
+        location: user.location ? {
+          coordinates: user.location.coordinates, // [lng, lat]
+          wardName: user.wardName
+        } : null
       }
     });
   } catch (error) {

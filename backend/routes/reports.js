@@ -70,6 +70,81 @@ router.post('/', auth, (req, res, next) => {
         });
       }
 
+      // Check for duplicate report within 500m by the same user
+      const queryPoint = {
+        type: 'Point',
+        coordinates: [longitude, latitude], // [lng, lat] - GeoJSON format
+      };
+
+      const userId = req.user._id || req.userId;
+      console.log(`[Duplicate Check] Checking for ANY existing reports within 500m`);
+      console.log(`[Duplicate Check] Location: [${longitude}, ${latitude}]`);
+      console.log(`[Duplicate Check] Current user: ${userId}`);
+
+      // Find ALL active reports (by any user) - only Pending and Verified
+      // Exclude Resolved (already fixed), Deleted and Rejected reports
+      // Resolved reports don't block new reports (issue might have returned)
+      // Then filter by distance (more reliable than $near with multiple conditions)
+      const allReports = await Report.find({
+        status: { $in: ['Pending', 'Verified'] }, // Only active reports (not resolved)
+      }).lean();
+
+      console.log(`[Duplicate Check] Found ${allReports.length} active reports (Pending or Verified)`);
+
+      // Calculate distance for each report and find if any are within 500m
+      let existingReport = null;
+      let closestDistance = Infinity;
+      
+      for (const report of allReports) {
+        if (!report.location || !report.location.coordinates) continue;
+        
+        const [reportLng, reportLat] = report.location.coordinates;
+        
+        // Calculate distance using Haversine formula
+        const R = 6371000; // Earth's radius in meters
+        const dLat = (latitude - reportLat) * Math.PI / 180;
+        const dLng = (longitude - reportLng) * Math.PI / 180;
+        const a = 
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(reportLat * Math.PI / 180) * Math.cos(latitude * Math.PI / 180) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c; // Distance in meters
+
+        if (distance <= 500 && distance < closestDistance) {
+          existingReport = report;
+          closestDistance = distance;
+          console.log(`[Duplicate Check] Found duplicate report within 500m: "${report.title}" by user ${report.userId} (${Math.round(distance)}m away)`);
+        }
+      }
+
+      console.log(`[Duplicate Check] Final result:`, existingReport ? `Found duplicate: "${existingReport.title}" (${Math.round(closestDistance)}m)` : 'No duplicate found - can create new report');
+
+      if (existingReport) {
+        // Check if user has already voted on this report
+        const userIdStr = userId.toString();
+        const hasUpvoted = (existingReport.upvotes || []).some((id) => id.toString() === userIdStr);
+        const hasDownvoted = (existingReport.downvotes || []).some((id) => id.toString() === userIdStr);
+        const hasVoted = hasUpvoted || hasDownvoted;
+
+        // Delete the uploaded file since we're not creating a new report
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (unlinkError) {
+          console.error('Error deleting uploaded file:', unlinkError);
+        }
+
+        return res.status(200).json({
+          success: true,
+          isDuplicate: true,
+          message: 'A report already exists at this location. Showing existing report.',
+          report: existingReport,
+          canVote: !hasVoted, // Can vote if not already voted
+          hasUpvoted,
+          hasDownvoted,
+        });
+      }
+
       // Build image URL relative to /uploads/reports
       const imageUrl = `/uploads/reports/${req.file.filename}`;
 
@@ -421,6 +496,8 @@ router.get('/nearby', auth, async (req, res) => {
 
     const userId = req.user._id;
     
+    // Include user's own reports only if they are Verified
+    // Include other users' reports (Pending, Verified, Resolved) but exclude Rejected and Deleted
     const reports = await Report.find({
       location: {
         $near: {
@@ -428,8 +505,15 @@ router.get('/nearby', auth, async (req, res) => {
           $maxDistance: 2000, // 2km radius in meters
         },
       },
-      status: { $nin: ['Rejected', 'Deleted'] }, // Exclude rejected and deleted reports (but include Pending)
-      userId: { $ne: userId }, // Exclude user's own reports from nearby results
+      $or: [
+        // User's own reports: only if Verified
+        { userId: userId, status: 'Verified' },
+        // Other users' reports: Pending, Verified, or Resolved (but not Rejected or Deleted)
+        { 
+          userId: { $ne: userId },
+          status: { $in: ['Pending', 'Verified', 'Resolved'] }
+        }
+      ],
     }).populate('userId', 'name phoneNumber').lean();
 
     console.log(`[Nearby Reports] Found ${reports.length} report(s) within 2km`);
