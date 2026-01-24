@@ -1,51 +1,70 @@
 import { useState, useEffect } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import { Bell, Clock } from 'lucide-react'
 import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
 import MobileHeader from './MobileHeader'
 import CreateReportModal from './CreateReportModal'
 import NotificationDropdown from './NotificationDropdown'
+import ReportDetailModal from './ReportDetailModal'
+import { notificationsAPI, reportsAPI } from '../utils/api'
 import logoIcon from '../assets/icons/logo-icon.svg'
 
 function Layout({ user, children, isLoading }) {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [isNotificationOpen, setIsNotificationOpen] = useState(false)
     const [currentTime, setCurrentTime] = useState(new Date())
+    const [notifications, setNotifications] = useState([])
+    const [unreadCount, setUnreadCount] = useState(0)
+    const [selectedReport, setSelectedReport] = useState(null)
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false)
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
 
-    // Mock Notifications Data
-    const [notifications, setNotifications] = useState([
-        {
-            id: '1',
-            type: 'success',
-            title: 'Report Verified',
-            message: 'Your report "Pothole on Main Street" has been verified by authorities.',
-            time: '2 hours ago',
-            read: false,
-            link: '/dashboard'
-        },
-        {
-            id: '2',
-            type: 'info',
-            title: 'Welcome to CivicAudit',
-            message: 'Thanks for joining! Complete your profile to get started.',
-            time: '1 day ago',
-            read: true,
-            link: '/profile'
-        },
-        {
-            id: '3',
-            type: 'alert',
-            title: 'Action Required',
-            message: 'Please update your location settings for better accuracy.',
-            time: '2 days ago',
-            read: true,
-            link: '/profile'
+    // Fetch notifications (only show unread ones)
+    const fetchNotifications = async () => {
+        try {
+            const response = await notificationsAPI.getNotifications()
+            if (response.success) {
+                // Only show unread notifications (remove read ones from display)
+                const unreadNotifications = (response.notifications || []).filter(n => !n.read)
+                setNotifications(unreadNotifications)
+                setUnreadCount(response.unreadCount || 0)
+            }
+        } catch (error) {
+            console.error('Error fetching notifications:', error)
         }
-    ])
+    }
 
-    const unreadCount = notifications.filter(n => !n.read).length
+    // Fetch notifications on mount and poll every 30 seconds
+    useEffect(() => {
+        if (user) {
+            fetchNotifications()
+            const interval = setInterval(fetchNotifications, 30000) // Poll every 30 seconds
+            return () => clearInterval(interval)
+        }
+    }, [user])
+
+    // Check for reportId in URL params (from notification click)
+    useEffect(() => {
+        const reportId = searchParams.get('reportId')
+        if (reportId && user) {
+            // Fetch and show report
+            reportsAPI.getReportById(reportId)
+                .then(response => {
+                    if (response.success && response.report) {
+                        setSelectedReport(response.report)
+                        setIsReportModalOpen(true)
+                        // Remove reportId from URL
+                        searchParams.delete('reportId')
+                        setSearchParams(searchParams, { replace: true })
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching report:', error)
+                })
+        }
+    }, [searchParams, user])
 
     // Live clock
     useEffect(() => {
@@ -69,16 +88,47 @@ function Layout({ user, children, isLoading }) {
         setIsNotificationOpen(!isNotificationOpen)
     }
 
-    const handleNotificationClick = (notification) => {
-        // Mark as read
-        setNotifications(notifications.map(n =>
-            n.id === notification.id ? { ...n, read: true } : n
-        ))
-        // Navigate
-        if (notification.link) {
+    const handleNotificationClick = async (notification) => {
+        // Mark as read and remove from list (user has seen it)
+        try {
+            await notificationsAPI.markAsRead(notification.id)
+            // Remove notification from list immediately
+            setNotifications(notifications.filter(n => n.id !== notification.id))
+            setUnreadCount(prev => Math.max(0, prev - 1))
+        } catch (error) {
+            console.error('Error marking notification as read:', error)
+        }
+
+        // If notification has a reportId, show the report
+        if (notification.reportId) {
+            try {
+                const response = await reportsAPI.getReportById(notification.reportId)
+                if (response.success && response.report) {
+                    setSelectedReport(response.report)
+                    setIsReportModalOpen(true)
+                }
+            } catch (error) {
+                console.error('Error fetching report:', error)
+                // Fallback to navigation if report fetch fails
+                if (notification.link) {
+                    navigate(notification.link)
+                }
+            }
+        } else if (notification.link) {
             navigate(notification.link)
         }
+        
         setIsNotificationOpen(false)
+    }
+
+    const handleMarkAllAsRead = async () => {
+        try {
+            await notificationsAPI.markAllAsRead()
+            setNotifications(notifications.map(n => ({ ...n, read: true })))
+            setUnreadCount(0)
+        } catch (error) {
+            console.error('Error marking all as read:', error)
+        }
     }
 
     if (isLoading) {
@@ -162,6 +212,18 @@ function Layout({ user, children, isLoading }) {
                 onClose={closeCreateModal}
                 userLocation={null} // We might need to pass location here if available from context
             />
+
+            {/* Report Detail Modal (from notifications) */}
+            {selectedReport && (
+                <ReportDetailModal
+                    report={selectedReport}
+                    isOpen={isReportModalOpen}
+                    onClose={() => {
+                        setIsReportModalOpen(false)
+                        setSelectedReport(null)
+                    }}
+                />
+            )}
         </div>
     )
 }

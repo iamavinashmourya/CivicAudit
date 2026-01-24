@@ -118,4 +118,25 @@ export const reportsAPI = {
   },
 };
 
+// Notifications API functions
+export const notificationsAPI = {
+  // Get all notifications
+  getNotifications: async () => {
+    const response = await api.get('/notifications');
+    return response.data;
+  },
+
+  // Mark notification as read
+  markAsRead: async (notificationId) => {
+    const response = await api.put(`/notifications/${notificationId}/read`);
+    return response.data;
+  },
+
+  // Mark all notifications as read
+  markAllAsRead: async () => {
+    const response = await api.put('/notifications/read-all');
+    return response.data;
+  },
+};
+
 export default api;
