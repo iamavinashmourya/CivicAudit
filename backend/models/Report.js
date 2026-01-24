@@ -99,6 +99,21 @@ const reportSchema = new mongoose.Schema({
       type: Boolean,
       default: false,
     },
+    verificationScore: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0,
+    },
+    isDangerous: {
+      type: Boolean,
+      default: false,
+    },
+    dangerType: {
+      type: String,
+      enum: ['fire', 'electrical', 'flood', 'structural', null],
+      default: null,
+    },
     sentimentScore: {
       type: Number,
       default: 0,
