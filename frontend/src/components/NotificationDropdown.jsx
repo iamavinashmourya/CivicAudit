@@ -24,7 +24,7 @@ function NotificationDropdown({ isOpen, onClose, notifications, onNotificationCl
             />
 
             {/* Dropdown Container */}
-            <div className="absolute top-16 right-4 lg:right-6 w-[calc(100%-32px)] lg:w-96 max-w-sm bg-white rounded-xl shadow-xl border border-gray-200 z-[1100] overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+            <div className="fixed lg:absolute top-16 right-4 lg:right-6 w-[calc(100%-32px)] lg:w-96 max-w-sm bg-white rounded-xl shadow-xl border border-gray-200 z-[1100] overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-200 origin-top-right">
 
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/50">

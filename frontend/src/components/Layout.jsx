@@ -186,15 +186,16 @@ function Layout({ user, children, isLoading }) {
                             </div>
                         </div>
                     </div>
-
-                    {/* Notification Dropdown (Positioned relative to header container for desktop) */}
-                    <NotificationDropdown
-                        isOpen={isNotificationOpen}
-                        onClose={() => setIsNotificationOpen(false)}
-                        notifications={notifications}
-                        onNotificationClick={handleNotificationClick}
-                    />
                 </header>
+
+                {/* Notification Dropdown (Shared for both mobile and desktop) - Outside header so it works on mobile */}
+                <NotificationDropdown
+                    isOpen={isNotificationOpen}
+                    onClose={() => setIsNotificationOpen(false)}
+                    notifications={notifications}
+                    onNotificationClick={handleNotificationClick}
+                    onMarkAllAsRead={handleMarkAllAsRead}
+                />
 
                 {/* Page Content */}
                 <main className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-50/50 pb-24 lg:pb-0">
