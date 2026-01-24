@@ -1,8 +1,28 @@
-Flask==3.0.0
+# Flask Web Framework
+flask==3.0.0
 flask-cors==4.0.0
+
+# Environment Variables
 python-dotenv==1.0.0
-requests==2.31.0
+
+# Computer Vision & Image Processing
+opencv-python==4.8.1.78
+pillow==10.1.0
+
+# Deep Learning & AI Models
+torch==2.1.0
+torchvision==0.16.0
+ultralytics==8.0.200
+
+# NLP & Transformers (CLIP Model)
+transformers==4.35.0
+
+# Text Processing
 textblob==0.17.1
-nltk==3.8.1
-google-generativeai
-Pillow
+
+# Production Server (Optional - for deployment)
+gunicorn==21.2.0
+
+# Additional Dependencies
+numpy==1.24.3
+requests==2.31.0
