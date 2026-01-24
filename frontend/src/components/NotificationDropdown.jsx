@@ -1,6 +1,6 @@
 import { Bell, CheckCircle2, AlertTriangle, Info, X } from 'lucide-react'
 
-function NotificationDropdown({ isOpen, onClose, notifications, onNotificationClick }) {
+function NotificationDropdown({ isOpen, onClose, notifications, onNotificationClick, onMarkAllAsRead }) {
     if (!isOpen) return null
 
     const getIcon = (type) => {
@@ -35,9 +35,14 @@ function NotificationDropdown({ isOpen, onClose, notifications, onNotificationCl
                     >
                         <X className="w-4 h-4" />
                     </button>
-                    <button className="text-xs text-blue-600 font-medium hover:text-blue-700 hidden lg:block">
-                        Mark all read
-                    </button>
+                    {onMarkAllAsRead && (
+                        <button 
+                            onClick={onMarkAllAsRead}
+                            className="text-xs text-blue-600 font-medium hover:text-blue-700 hidden lg:block"
+                        >
+                            Mark all read
+                        </button>
+                    )}
                 </div>
 
                 {/* List */}
@@ -83,11 +88,16 @@ function NotificationDropdown({ isOpen, onClose, notifications, onNotificationCl
                 </div>
 
                 {/* Footer */}
-                <div className="p-2 border-t border-gray-100 bg-gray-50/50 text-center lg:hidden">
-                    <button className="text-xs text-blue-600 font-medium w-full py-2">
-                        Mark all as read
-                    </button>
-                </div>
+                {onMarkAllAsRead && (
+                    <div className="p-2 border-t border-gray-100 bg-gray-50/50 text-center lg:hidden">
+                        <button 
+                            onClick={onMarkAllAsRead}
+                            className="text-xs text-blue-600 font-medium w-full py-2"
+                        >
+                            Mark all as read
+                        </button>
+                    </div>
+                )}
             </div>
         </>
     )

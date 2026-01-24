@@ -10,23 +10,77 @@ function Signup() {
   const [name, setName] = useState('')
   const [showOTP, setShowOTP] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const handleMobileSubmit = async (e) => {
     e.preventDefault()
+    setError('') // Clear previous errors
     
     // Validate inputs
     if (!name.trim()) {
-      alert('Please enter your name')
+      setError('Please enter your name')
       return
     }
 
     if (!mobileNumber || mobileNumber.length !== 10) {
-      alert('Please enter a valid 10-digit mobile number')
+      setError('Enter real number')
+      return
+    }
+
+    // Check for fake numbers (all same digits, sequential, etc.)
+    const digits = mobileNumber.replace(/\D/g, '');
+    
+    // Check if all digits are the same
+    const allSame = digits.split('').every(digit => digit === digits[0]);
+    if (allSame) {
+      setError('Invalid number')
+      return
+    }
+
+    // Check for sequential numbers (strict - must be perfectly sequential)
+    let isSequential = true;
+    let isReverseSequential = true;
+    for (let i = 1; i < digits.length; i++) {
+      const current = parseInt(digits[i]);
+      const previous = parseInt(digits[i - 1]);
+      if (current !== previous + 1) isSequential = false;
+      if (current !== previous - 1) isReverseSequential = false;
+    }
+    if (isSequential || isReverseSequential) {
+      setError('Invalid number')
+      return
+    }
+
+    // Check for repeating patterns (only block obvious fake patterns)
+    // Check 2-digit pattern - only block if pattern repeats 5+ times (too obvious)
+    if (digits.length >= 4) {
+      const pattern2 = digits.substring(0, 2);
+      const matches = digits.match(new RegExp(pattern2, 'g'));
+      if (matches && matches.length >= 5) {
+        setError('Invalid number')
+        return
+      }
+    }
+    
+    // Check 3-digit pattern - only block if pattern repeats 4+ times
+    if (digits.length >= 6) {
+      const pattern3 = digits.substring(0, 3);
+      const matches = digits.match(new RegExp(pattern3, 'g'));
+      if (matches && matches.length >= 4) {
+        setError('Invalid number')
+        return
+      }
+    }
+
+    // Check if starts with 6-9 (valid Indian mobile)
+    if (!/^[6-9]/.test(digits)) {
+      setError('Invalid number')
       return
     }
 
     setIsLoading(true)
+    setError('')
     
     try {
       const phoneNumber = `+91${mobileNumber}`
@@ -43,7 +97,7 @@ function Signup() {
       console.error('Error sending OTP:', error)
       
       // Handle specific error cases
-      alert(error.response?.data?.message || `Error: ${error.message}`)
+      setError(error.response?.data?.message || `Error: ${error.message}`)
     }
   }
 
@@ -63,7 +117,7 @@ function Signup() {
       }
     } catch (error) {
       console.error('Error signing up:', error)
-      alert(`Signup failed: ${error.response?.data?.message || error.message}`)
+      setError(`Signup failed: ${error.response?.data?.message || error.message}`)
     }
   }
 
@@ -95,6 +149,13 @@ function Signup() {
           <p className="text-gray-600">Create your account</p>
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
         {/* Signup Form */}
         <form onSubmit={handleMobileSubmit} className="space-y-6">
           <div>
@@ -109,7 +170,10 @@ function Signup() {
                 type="text"
                 id="name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  setError('') // Clear error when user types
+                }}
                 placeholder="Enter your full name"
                 className="block w-full pl-12 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                 required
@@ -133,7 +197,10 @@ function Signup() {
                 type="tel"
                 id="mobile"
                 value={mobileNumber}
-                onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                onChange={(e) => {
+                  setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))
+                  setError('') // Clear error when user types
+                }}
                 placeholder="Enter your mobile number"
                 className="block w-full pl-20 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                 maxLength="10"

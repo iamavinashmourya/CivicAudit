@@ -7,6 +7,7 @@ const fs = require('fs');
 const { uploadReportImage } = require('../middleware/upload');
 const auth = require('../middleware/auth');
 const Report = require('../models/Report');
+const { notifyNearbyUsers } = require('../utils/notifications');
 
 // POST /api/reports - Create a new report
 router.post('/', auth, (req, res, next) => {
@@ -70,26 +71,29 @@ router.post('/', auth, (req, res, next) => {
         });
       }
 
-      // Check for duplicate report within 500m by the same user
+      // Check for duplicate report within 500m with SAME CATEGORY
+      // Different categories (e.g., "Road" vs "Electricity") are NOT duplicates
       const queryPoint = {
         type: 'Point',
         coordinates: [longitude, latitude], // [lng, lat] - GeoJSON format
       };
 
       const userId = req.user._id || req.userId;
-      console.log(`[Duplicate Check] Checking for ANY existing reports within 500m`);
+      const reportCategory = category.trim().toLowerCase();
+      console.log(`[Duplicate Check] Checking for existing reports within 500m with category: "${reportCategory}"`);
       console.log(`[Duplicate Check] Location: [${longitude}, ${latitude}]`);
       console.log(`[Duplicate Check] Current user: ${userId}`);
 
       // Find ALL active reports (by any user) - only Pending and Verified
       // Exclude Resolved (already fixed), Deleted and Rejected reports
       // Resolved reports don't block new reports (issue might have returned)
-      // Then filter by distance (more reliable than $near with multiple conditions)
+      // Filter by category first to avoid false duplicates
       const allReports = await Report.find({
         status: { $in: ['Pending', 'Verified'] }, // Only active reports (not resolved)
+        category: { $regex: new RegExp(`^${reportCategory}$`, 'i') }, // Case-insensitive category match
       }).lean();
 
-      console.log(`[Duplicate Check] Found ${allReports.length} active reports (Pending or Verified)`);
+      console.log(`[Duplicate Check] Found ${allReports.length} active reports with category "${reportCategory}" (Pending or Verified)`);
 
       // Calculate distance for each report and find if any are within 500m
       let existingReport = null;
@@ -114,7 +118,7 @@ router.post('/', auth, (req, res, next) => {
         if (distance <= 500 && distance < closestDistance) {
           existingReport = report;
           closestDistance = distance;
-          console.log(`[Duplicate Check] Found duplicate report within 500m: "${report.title}" by user ${report.userId} (${Math.round(distance)}m away)`);
+          console.log(`[Duplicate Check] Found duplicate report within 500m: "${report.title}" (category: ${report.category}) by user ${report.userId} (${Math.round(distance)}m away)`);
         }
       }
 
@@ -270,6 +274,11 @@ router.post('/', auth, (req, res, next) => {
       });
 
       await report.save();
+
+      // Send notifications to nearby users (async, don't wait)
+      notifyNearbyUsers(report).catch(err => {
+        console.error('[Report Creation] Notification error (non-blocking):', err);
+      });
 
       return res.status(201).json({
         success: true,

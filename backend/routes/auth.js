@@ -10,6 +10,107 @@ function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+// Validate phone number to detect fake numbers
+function isValidPhoneNumber(phoneNumber) {
+  // Remove any non-digit characters for validation
+  let digits = phoneNumber.replace(/\D/g, '');
+  
+  // Remove country code if present (91 for India)
+  if (digits.length === 12 && digits.startsWith('91')) {
+    digits = digits.substring(2);
+  } else if (digits.length === 13 && digits.startsWith('9191')) {
+    // Handle double country code
+    digits = digits.substring(4);
+  }
+  
+  // Must be 10 digits (Indian phone number format)
+  if (digits.length !== 10) {
+    return { valid: false, reason: 'Enter real number' };
+  }
+
+  // Check if all digits are the same (1111111111, 2222222222, etc.)
+  const allSame = digits.split('').every(digit => digit === digits[0]);
+  if (allSame) {
+    return { valid: false, reason: 'Invalid number' };
+  }
+
+  // Check for sequential numbers (1234567890, 9876543210, etc.)
+  let isSequential = true;
+  let isReverseSequential = true;
+  
+  for (let i = 1; i < digits.length; i++) {
+    const current = parseInt(digits[i]);
+    const previous = parseInt(digits[i - 1]);
+    
+    // Check forward sequence
+    if (current !== previous + 1) {
+      isSequential = false;
+    }
+    
+    // Check reverse sequence
+    if (current !== previous - 1) {
+      isReverseSequential = false;
+    }
+  }
+  
+  if (isSequential || isReverseSequential) {
+    return { valid: false, reason: 'Invalid number' };
+  }
+
+  // Check for repeating patterns (only block obvious fake patterns)
+  // Check 2-digit pattern - only block if pattern repeats 5+ times (too obvious)
+  if (digits.length >= 4) {
+    const pattern2 = digits.substring(0, 2);
+    const repeats2 = digits.match(new RegExp(pattern2, 'g'));
+    if (repeats2 && repeats2.length >= 5) {
+      return { valid: false, reason: 'Invalid number' };
+    }
+  }
+  
+  // Check 3-digit pattern - only block if pattern repeats 4+ times
+  if (digits.length >= 6) {
+    const pattern3 = digits.substring(0, 3);
+    const repeats3 = digits.match(new RegExp(pattern3, 'g'));
+    if (repeats3 && repeats3.length >= 4) {
+      return { valid: false, reason: 'Invalid number' };
+    }
+  }
+
+  // Check for common fake patterns
+  const fakePatterns = [
+    '1234567890',
+    '0987654321',
+    '0123456789',
+    '9876543210',
+    '1111111111',
+    '2222222222',
+    '3333333333',
+    '4444444444',
+    '5555555555',
+    '6666666666',
+    '7777777777',
+    '8888888888',
+    '9999999999',
+    '0000000000',
+  ];
+  
+  if (fakePatterns.includes(digits)) {
+    return { valid: false, reason: 'Invalid number' };
+  }
+
+  // Check if it starts with 0 (not valid for Indian numbers)
+  if (digits[0] === '0') {
+    return { valid: false, reason: 'Invalid number' };
+  }
+
+  // Check if it's a valid Indian mobile number (starts with 6-9)
+  if (!/^[6-9]/.test(digits)) {
+    return { valid: false, reason: 'Invalid number' };
+  }
+
+  return { valid: true };
+}
+
 // POST /api/auth/send-otp
 router.post('/send-otp', async (req, res) => {
   try {
@@ -24,6 +125,15 @@ router.post('/send-otp', async (req, res) => {
     }
 
     const normalizedPhoneNumber = phoneNumber.trim();
+    
+    // Validate phone number format and detect fake numbers
+    const phoneValidation = isValidPhoneNumber(normalizedPhoneNumber);
+    if (!phoneValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: phoneValidation.reason || 'Invalid phone number format',
+      });
+    }
     const now = new Date();
     const existing = await OTP.findOne({ phoneNumber: normalizedPhoneNumber });
 
@@ -83,6 +193,15 @@ router.post('/verify-otp', async (req, res) => {
     }
 
     const normalizedPhoneNumber = phoneNumber.trim();
+    
+    // Validate phone number format and detect fake numbers
+    const phoneValidation = isValidPhoneNumber(normalizedPhoneNumber);
+    if (!phoneValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: phoneValidation.reason || 'Invalid phone number format',
+      });
+    }
 
     const record = await OTP.findOne({ phoneNumber: normalizedPhoneNumber });
     const now = new Date();
