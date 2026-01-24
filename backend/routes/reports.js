@@ -495,9 +495,6 @@ router.get('/nearby', auth, async (req, res) => {
       });
     }
 
-    // Debug logging
-    console.log(`[Nearby Reports] Query: lat=${latitude}, lng=${longitude}`);
-
     const queryPoint = {
       type: 'Point',
       coordinates: [longitude, latitude], // [lng, lat] - GeoJSON format
@@ -524,8 +521,6 @@ router.get('/nearby', auth, async (req, res) => {
         }
       ],
     }).populate('userId', 'name phoneNumber').lean();
-
-    console.log(`[Nearby Reports] Found ${reports.length} report(s) within 2km`);
 
     // Format response - ensure coordinates are properly formatted
     const formattedReports = reports.map(report => ({

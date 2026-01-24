@@ -105,6 +105,10 @@ function Dashboard() {
       setFetchError('')
 
       try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
+        console.log('[Dashboard] Fetching nearby reports from:', API_URL)
+        console.log('[Dashboard] Location:', { lat: homeLocation.lat, lng: homeLocation.lng })
+        
         const response = await reportsAPI.getNearbyReports(homeLocation.lat, homeLocation.lng)
 
         if (response.success && response.reports) {
@@ -145,12 +149,43 @@ function Dashboard() {
           // Filter out Pending reports from map display
           const filteredReports = transformedReports.filter(report => report.status !== 'Pending')
           setReports(filteredReports)
+          console.log('[Dashboard] Successfully loaded', filteredReports.length, 'reports')
         } else {
-          setFetchError(response.message || 'Failed to fetch nearby reports')
+          const errorMsg = response.message || 'Failed to fetch nearby reports'
+          console.error('[Dashboard] API returned error:', errorMsg)
+          setFetchError(errorMsg)
         }
       } catch (error) {
-        console.error('Error fetching nearby reports:', error)
-        setFetchError('Failed to load nearby reports. Please try again.')
+        console.error('[Dashboard] Error fetching nearby reports:', error)
+        console.error('[Dashboard] Error details:', {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+          apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
+        })
+        
+        // Provide more helpful error messages
+        let errorMessage = 'Failed to load nearby reports. '
+        if (error.response) {
+          // Server responded with error
+          if (error.response.status === 401) {
+            errorMessage += 'Authentication failed. Please login again.'
+          } else if (error.response.status === 404) {
+            errorMessage += 'API endpoint not found. Check backend configuration.'
+          } else if (error.response.data?.message) {
+            errorMessage += error.response.data.message
+          } else {
+            errorMessage += `Server error (${error.response.status})`
+          }
+        } else if (error.request) {
+          // Request was made but no response received
+          errorMessage += 'Cannot connect to backend. Check if backend is running and VITE_API_URL is set correctly.'
+        } else {
+          // Something else happened
+          errorMessage += error.message || 'Unknown error occurred.'
+        }
+        
+        setFetchError(errorMessage)
       } finally {
         setIsFetchingReports(false)
       }
@@ -272,7 +307,15 @@ function Dashboard() {
                   <Loader2 className="w-5 h-5 text-[#3B5CE8] animate-spin" />
                 </div>
               ) : fetchError ? (
-                <div className="text-xs text-red-600 py-2">{fetchError}</div>
+                <div className="space-y-2">
+                  <div className="text-xs text-red-600 py-2">{fetchError}</div>
+                  {/* Diagnostic info in development */}
+                  {import.meta.env.DEV && (
+                    <div className="text-xs text-gray-500 border-t pt-2 mt-2">
+                      <div>API: {import.meta.env.VITE_API_URL || 'NOT SET'}</div>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center text-sm">
@@ -302,6 +345,23 @@ function Dashboard() {
                 <AlertCircle className="w-12 h-12 text-red-300 mx-auto mb-4" />
                 <p className="text-gray-700 text-sm font-semibold">Error loading reports</p>
                 <p className="text-gray-500 text-xs mt-2">{fetchError}</p>
+                {/* Diagnostic info */}
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg text-left text-xs">
+                  <p className="font-semibold mb-2">Diagnostic Info:</p>
+                  <p className="text-gray-600">
+                    <span className="font-medium">API URL:</span>{' '}
+                    {import.meta.env.VITE_API_URL || (
+                      <span className="text-red-600">NOT SET - Please configure VITE_API_URL in Vercel</span>
+                    )}
+                  </p>
+                  <p className="text-gray-600 mt-1">
+                    <span className="font-medium">Home Location:</span>{' '}
+                    {homeLocation ? `${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}` : 'Not set'}
+                  </p>
+                  <p className="text-gray-500 text-xs mt-2 italic">
+                    Check browser console (F12) for detailed error logs
+                  </p>
+                </div>
               </div>
             ) : reports.length === 0 ? (
               <div className="text-center py-12">
